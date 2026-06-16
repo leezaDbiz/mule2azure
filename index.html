@@ -634,7 +634,7 @@ VIEWS[3]=()=>`
     <button class="btn btn-p" onclick="discoverDeployments()">Discover now</button>
     <div id="discStatus" style="margin-top:14px"></div>
   </div>
-  <div id="discResults" class="hide">
+  <div id="discResults" ${S.runtimeApps.length||S.apiManagerApis.length?'':'class="hide"'}>
     <div class="card">
       <div class="disc-card">
         <div class="dn">Runtime Manager — deployed apps (${S.runtimeApps.length})</div>
@@ -683,7 +683,6 @@ window.discoverDeployments=async()=>{
     S.runtimeApps = rmData.status==='fulfilled'?rmData.value.apps:[];
     S.apiManagerApis = amData.status==='fulfilled'?amData.value.apis:[];
     st.innerHTML='';
-    document.getElementById('discResults').classList.remove('hide');
     render();
   }catch(e){ st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
 };
