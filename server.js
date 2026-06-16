@@ -17,13 +17,17 @@
 const express = require('express');
 const cors    = require('cors');
 const axios   = require('axios');
-const OpenAI  = require('openai');
+const { AzureOpenAI } = require('openai');
 const path    = require('path');
 const fs      = require('fs');
 
 const app    = express();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
-const MODEL  = 'gpt-4o';
+const openai = new AzureOpenAI({
+  endpoint:   'https://mulesoft-ai-capability.openai.azure.com',
+  apiKey:     process.env.AZURE_OPENAI_API_KEY || '',
+  apiVersion: '2025-01-01-preview',
+});
+const MODEL = 'gpt-5-mini';
 const PORT   = process.env.PORT || 7433;  // Render sets PORT automatically
 
 app.use(cors({
@@ -512,8 +516,8 @@ Be specific about variable names, secret names, and Azure resource names.`;
 app.post('/api/ai/convert', async (req, res) => {
   const { task, payload } = req.body;
 
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
+  if (!process.env.AZURE_OPENAI_API_KEY) {
+    return res.status(500).json({ error: 'AZURE_OPENAI_API_KEY not set' });
   }
 
   res.writeHead(200, {
@@ -763,16 +767,16 @@ app.get('/', (req, res) => {
 // Start
 // ─────────────────────────────────────────────
 app.listen(PORT, () => {
-  const key = process.env.OPENAI_API_KEY || '';
+  const key = process.env.AZURE_OPENAI_API_KEY || '';
   console.log('\n' + '─'.repeat(52));
   console.log('  Mule2Azure — AI Migration Console');
   console.log('  Runtime : Node.js ' + process.version);
-  console.log('  LLM     : OpenAI ChatGPT (' + MODEL + ')');
+  console.log('  LLM     : Azure OpenAI (' + MODEL + ')');
   console.log('  Target  : Azure Integration Services');
   console.log('─'.repeat(52));
   if (!key) {
-    console.log('\n  ⚠  OPENAI_API_KEY not set');
-    console.log('     export OPENAI_API_KEY=sk-...\n');
+    console.log('\n  ⚠  AZURE_OPENAI_API_KEY not set');
+    console.log('     export AZURE_OPENAI_API_KEY=<your-key>\n');
   } else {
     console.log('\n  ✓ API key: ' + key.slice(0, 8) + '...');
   }
