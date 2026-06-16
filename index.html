@@ -711,23 +711,39 @@ window.discoverDeployments=async()=>{
 window.loadPoliciesAndSla=async()=>{
   const st=document.getElementById('policyStatus');
   const btn=document.getElementById('loadPoliciesBtn');
-  if(!st) return;
+  if(!st){ console.error('policyStatus element not found'); return; }
   if(btn) btn.disabled=true;
-  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink2);margin-bottom:10px"><span class="dot-live"></span> Fetching policies, SLA tiers and consumers for ${S.apiManagerApis.length} APIs…</div>`;
-  const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
-  await Promise.allSettled(S.apiManagerApis.map(async a=>{
-    const [pol,sla,con]=await Promise.allSettled([
-      api('/api/anypoint/policies',{...base,apiId:a.id}),
-      api('/api/anypoint/sla-tiers',{...base,apiId:a.id}),
-      api('/api/anypoint/contracts',{...base,apiId:a.id}),
-    ]);
-    if(pol.status==='fulfilled') S.apiPolicies[a.id]=pol.value.policies||[];
-    if(sla.status==='fulfilled') S.apiSlas[a.id]=sla.value.tiers||[];
-    if(con.status==='fulfilled') S.apiContracts[a.id]=con.value.contracts||[];
-  }));
-  st.innerHTML='';
-  if(btn) btn.disabled=false;
-  render();
+
+  const logLines=[];
+  const log=(msg)=>{ logLines.push(msg); st.innerHTML=`<div style="background:var(--bg);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--ink2);max-height:150px;overflow-y:auto;border:1px solid var(--bdr)">${logLines.join('')}</div>`; };
+
+  log(`<div><span class="dot-live"></span> Loading details for ${S.apiManagerApis.length} APIs…</div>`);
+
+  try{
+    if(!S.selectedEnv) throw new Error('No environment selected — go back to step 2');
+    const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+    let ok=0,errs=0;
+
+    await Promise.allSettled(S.apiManagerApis.map(async a=>{
+      const [pol,sla,con]=await Promise.allSettled([
+        api('/api/anypoint/policies', {...base,apiId:a.id}),
+        api('/api/anypoint/sla-tiers',{...base,apiId:a.id}),
+        api('/api/anypoint/contracts',{...base,apiId:a.id}),
+      ]);
+      if(pol.status==='fulfilled'){ S.apiPolicies[a.id]=pol.value.policies||[]; }
+      else{ errs++; log(`<div style="color:var(--err)">✗ ${esc(a.name)} policies: ${esc(pol.reason?.message||'error')}</div>`); }
+      if(sla.status==='fulfilled') S.apiSlas[a.id]=sla.value.tiers||[];
+      if(con.status==='fulfilled') S.apiContracts[a.id]=con.value.contracts||[];
+      ok++;
+      log(`<div style="color:var(--ok)">✓ ${esc(a.name)} — ${(S.apiPolicies[a.id]||[]).length} policies · ${(S.apiSlas[a.id]||[]).length} SLA tiers · ${(S.apiContracts[a.id]||[]).length} consumers</div>`);
+    }));
+
+    log(`<div style="margin-top:6px;color:var(--ok)">✓ Done — ${ok} APIs loaded${errs?`, ${errs} errors (check Connected App scopes)`:''})</div>`);
+    setTimeout(()=>{ if(btn) btn.disabled=false; render(); }, 800);
+  }catch(e){
+    st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`;
+    if(btn) btn.disabled=false;
+  }
 };
 
 /* ================================================================
