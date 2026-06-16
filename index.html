@@ -652,12 +652,14 @@ VIEWS[3]=()=>`
       <div class="disc-card">
         <div class="dn">API Manager — managed APIs (${S.apiManagerApis.length})</div>
         ${S.apiManagerApis.length ? `<table class="tbl">
-          <thead><tr><th>API</th><th>Version</th><th>Technology</th><th>Policies</th></tr></thead>
+          <thead><tr><th>API</th><th>Version</th><th>Technology</th><th>Status</th><th>Policies</th><th>Autodiscovery</th></tr></thead>
           <tbody>${S.apiManagerApis.map(a=>`<tr>
             <td class="mono">${esc(a.name)}</td>
-            <td class="mono">${esc(a.version||'?')}</td>
-            <td><span class="pill ${a.technology?.includes('4')?'ok':'warn'}">${esc(a.technology||'?')}</span></td>
-            <td style="font-size:11px;color:var(--ink2)">${(a.policies||[]).join(', ')||'—'}</td>
+            <td class="mono">${esc(a.version||'—')}</td>
+            <td>${a.technology?`<span class="pill ${a.technology.includes('4')?'ok':'warn'}">${esc(a.technology)}</span>`:'<span style="color:var(--ink3);font-size:11px">unknown</span>'}</td>
+            <td><span class="pill ${a.status==='active'?'ok':'warn'}">${esc(a.status||'?')}</span></td>
+            <td style="font-size:11px;color:var(--ink2)">${a.policies?.length?a.policies.map(p=>`<span class="pill warn" style="font-size:10px">${esc(p)}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
+            <td class="mono" style="font-size:11px;color:var(--ink3)">${esc(a.autodiscovery||'—')}</td>
           </tr>`).join('')}</tbody>
         </table>` : '<div class="di">No APIs found</div>'}
       </div>

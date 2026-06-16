@@ -330,17 +330,34 @@ app.post('/api/anypoint/api-manager', async (req, res) => {
       { headers }
     );
 
-    const apis = (apisR.data.assets || []).map(api => ({
-      id:           api.id,
-      name:         api.assetId,
-      version:      api.assetVersion,
-      status:       api.status,
-      technology:   api.technology,   // mule4 | mule3 | flexGateway
-      endpoint:     api.endpoint?.uri,
-      policies:     (api.policies || []).map(p => p.template?.assetId),
-      autodiscovery: api.autodiscoveryInstanceName,
+    const rawApis = apisR.data.assets || [];
+
+    // Fetch policies for every API in parallel
+    const results = await Promise.allSettled(rawApis.map(async api => {
+      let policies = [];
+      try {
+        const polR = await axios.get(
+          `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${api.id}/policies`,
+          { headers }
+        );
+        policies = (polR.data || []).map(p =>
+          p.template?.assetId || p.policyTemplateId || String(p.id)
+        ).filter(Boolean);
+      } catch (_) { /* no policies or no permission — leave empty */ }
+
+      return {
+        id:            api.id,
+        name:          api.assetId || api.exchangeAssetName || api.name,
+        version:       api.productVersion || api.assetVersion,
+        status:        api.status,
+        technology:    api.technology || (api.endpoint?.muleVersion4OrAbove ? 'mule4' : null),
+        endpoint:      api.endpoint?.uri,
+        policies,
+        autodiscovery: api.autodiscoveryInstanceName,
+      };
     }));
 
+    const apis = results.filter(r => r.status === 'fulfilled').map(r => r.value);
     res.json({ apis, total: apis.length });
   } catch (e) {
     res.status(502).json({ error: e.response?.data?.message || e.message });
