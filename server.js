@@ -413,6 +413,168 @@ app.post('/api/anypoint/api-manager', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// GitHub: bulk fetch Mule project files for multiple repos
+// ─────────────────────────────────────────────
+app.post('/api/github/fetch-mule-files', async (req, res) => {
+  const { org, repos, token } = req.body;
+  if (!org || !repos?.length) return res.status(400).json({ error: 'org and repos required' });
+
+  const ghHeaders = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'Mule2Azure-Migration-Tool',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  const PATTERNS = [
+    { re: /^src\/main\/mule\/.+\.xml$/,                        type: 'mule-xml'      },
+    { re: /^src\/main\/resources\/api\/.+\.raml$/,             type: 'raml'          },
+    { re: /^src\/main\/resources\/dwl\/.+\.dwl$/,              type: 'dwl'           },
+    { re: /^pom\.xml$/,                                        type: 'pom'           },
+    { re: /^mule-artifact\.json$/,                             type: 'mule-artifact' },
+    { re: /^src\/main\/resources\/.+\.(yaml|yml|properties)$/, type: 'config'        },
+  ];
+
+  const fetchContent = async (fullName, filePath) => {
+    const r = await axios.get(
+      `https://api.github.com/repos/${fullName}/contents/${filePath}`,
+      { headers: ghHeaders }
+    );
+    return Buffer.from(r.data.content, 'base64').toString('utf8');
+  };
+
+  const results = [];
+
+  for (const repoName of repos) {
+    const fullName = `${org}/${repoName}`;
+    let tree = null, branch = 'main';
+
+    for (const b of ['main', 'master']) {
+      try {
+        const r = await axios.get(
+          `https://api.github.com/repos/${fullName}/git/trees/${b}?recursive=1`,
+          { headers: ghHeaders }
+        );
+        tree = r.data.tree; branch = b; break;
+      } catch (_) { /* try next */ }
+    }
+
+    if (!tree) { results.push({ repo: repoName, files: [], error: 'Could not fetch tree' }); continue; }
+
+    const matched = tree
+      .filter(f => f.type === 'blob')
+      .filter(f => PATTERNS.some(p => p.re.test(f.path)));
+
+    const fetched = await Promise.allSettled(matched.map(async f => {
+      const patt = PATTERNS.find(p => p.re.test(f.path));
+      const content = await fetchContent(fullName, f.path);
+      return { path: f.path, content, type: patt.type };
+    }));
+
+    results.push({
+      repo:   repoName,
+      branch,
+      files:  fetched.filter(r => r.status === 'fulfilled').map(r => r.value),
+    });
+  }
+
+  res.json({ results });
+});
+
+// ─────────────────────────────────────────────
+// Anypoint: get applied policies for a specific API
+// ─────────────────────────────────────────────
+app.post('/api/anypoint/policies', async (req, res) => {
+  const { accessToken, orgId, envId, apiId } = req.body;
+  if (!accessToken || !orgId || !envId || !apiId) return res.status(400).json({ error: 'accessToken, orgId, envId, apiId required' });
+  try {
+    const r = await axios.get(
+      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/policies`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const policies = (r.data || []).map(p => ({
+      policyId:          p.id,
+      name:              p.template?.name || p.template?.assetId || p.policyTemplateId,
+      configurationData: p.configuration || p.configurationData || {},
+      order:             p.order,
+    }));
+    res.json({ policies });
+  } catch (e) {
+    res.status(502).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// Anypoint: get SLA tiers for a specific API
+// ─────────────────────────────────────────────
+app.post('/api/anypoint/sla-tiers', async (req, res) => {
+  const { accessToken, orgId, envId, apiId } = req.body;
+  if (!accessToken || !orgId || !envId || !apiId) return res.status(400).json({ error: 'accessToken, orgId, envId, apiId required' });
+  try {
+    const r = await axios.get(
+      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/tiers`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const tiers = (r.data?.tiers || r.data || []).map(t => ({
+      name:   t.name,
+      limits: (t.limits || []).map(l => ({
+        timePeriodInMilliseconds: l.timePeriodInMilliseconds,
+        maximumRequests:          l.maximumRequests,
+      })),
+    }));
+    res.json({ tiers });
+  } catch (e) {
+    res.status(502).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// Anypoint: get contracts (consumer apps) for a specific API
+// ─────────────────────────────────────────────
+app.post('/api/anypoint/contracts', async (req, res) => {
+  const { accessToken, orgId, envId, apiId } = req.body;
+  if (!accessToken || !orgId || !envId || !apiId) return res.status(400).json({ error: 'accessToken, orgId, envId, apiId required' });
+  try {
+    const r = await axios.get(
+      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/contracts`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const contracts = (r.data?.contracts || r.data || []).map(c => ({
+      applicationName: c.application?.name || c.applicationName,
+      status:          c.status,
+      tier:            c.tier?.name || c.tierName,
+    }));
+    res.json({ contracts });
+  } catch (e) {
+    res.status(502).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// Anypoint: list Exchange assets (REST APIs, RAML fragments)
+// ─────────────────────────────────────────────
+app.post('/api/anypoint/exchange', async (req, res) => {
+  const { accessToken, orgId } = req.body;
+  if (!accessToken || !orgId) return res.status(400).json({ error: 'accessToken and orgId required' });
+  try {
+    const r = await axios.get(
+      `https://anypoint.mulesoft.com/exchange/api/v2/assets?organizationId=${orgId}&types=rest-api,raml-fragment&limit=100`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const assets = (r.data || []).map(a => ({
+      assetId:     a.assetId,
+      name:        a.name,
+      version:     a.version,
+      type:        a.type,
+      description: a.description,
+    }));
+    res.json({ assets });
+  } catch (e) {
+    res.status(502).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // STEP 7 — AI: Generate HLD + LLD
 // ─────────────────────────────────────────────
 app.post('/api/ai/hld', async (req, res) => {

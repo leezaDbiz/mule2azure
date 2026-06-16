@@ -228,6 +228,7 @@ const S = {
   environments: [], selectedEnv: null,
   // Step 4 — Discovery
   runtimeApps: [], apiManagerApis: [],
+  apiPolicies: {}, apiSlas: {}, apiContracts: {},
   // Step 5 — Parse
   projects: {}, analysed: false,
   // Step 6 — Blueprint
@@ -665,6 +666,23 @@ VIEWS[3]=()=>`
         </table>` : '<div class="di">No APIs found</div>'}
       </div>
     </div>
+    ${S.apiManagerApis.length?`
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:600">Policies, SLA tiers &amp; consumers</div>
+        <button class="btn btn-g" id="loadPoliciesBtn" onclick="loadPoliciesAndSla()" style="padding:5px 14px;font-size:12px">Load policies &amp; SLA tiers</button>
+      </div>
+      <div id="policyStatus"></div>
+      ${Object.keys(S.apiPolicies).length?`<table class="tbl">
+        <thead><tr><th>API</th><th>Policies applied</th><th>SLA tiers</th><th>Consumers</th></tr></thead>
+        <tbody>${S.apiManagerApis.map(a=>`<tr>
+          <td class="mono">${esc(a.name)}</td>
+          <td style="font-size:11px">${(S.apiPolicies[a.id]||[]).length?(S.apiPolicies[a.id]).map(p=>`<span class="pill warn" style="font-size:10px">${esc(p.name||String(p.policyId)||'?')}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
+          <td style="font-size:11px">${(S.apiSlas[a.id]||[]).length?(S.apiSlas[a.id]).map(t=>`<span class="pill ok" style="font-size:10px">${esc(t.name)}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
+          <td class="mono" style="font-size:11px">${(S.apiContracts[a.id]||[]).length||'—'}</td>
+        </tr>`).join('')}</tbody>
+      </table>`:'<div class="di" style="font-size:12px;color:var(--ink3)">Click "Load policies &amp; SLA tiers" to fetch details for each API</div>'}
+    </div>`:''}
     <div class="nrow">
       <button class="btn btn-p" onclick="unlock(4);go(4)">Next: Parse applications →</button>
       <span style="font-size:12px;color:var(--ink2)">${S.runtimeApps.length} apps · ${S.apiManagerApis.length} APIs discovered</span>
@@ -688,6 +706,28 @@ window.discoverDeployments=async()=>{
     st.innerHTML='';
     render();
   }catch(e){ st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
+};
+
+window.loadPoliciesAndSla=async()=>{
+  const st=document.getElementById('policyStatus');
+  const btn=document.getElementById('loadPoliciesBtn');
+  if(!st) return;
+  if(btn) btn.disabled=true;
+  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink2);margin-bottom:10px"><span class="dot-live"></span> Fetching policies, SLA tiers and consumers for ${S.apiManagerApis.length} APIs…</div>`;
+  const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+  await Promise.allSettled(S.apiManagerApis.map(async a=>{
+    const [pol,sla,con]=await Promise.allSettled([
+      api('/api/anypoint/policies',{...base,apiId:a.id}),
+      api('/api/anypoint/sla-tiers',{...base,apiId:a.id}),
+      api('/api/anypoint/contracts',{...base,apiId:a.id}),
+    ]);
+    if(pol.status==='fulfilled') S.apiPolicies[a.id]=pol.value.policies||[];
+    if(sla.status==='fulfilled') S.apiSlas[a.id]=sla.value.tiers||[];
+    if(con.status==='fulfilled') S.apiContracts[a.id]=con.value.contracts||[];
+  }));
+  st.innerHTML='';
+  if(btn) btn.disabled=false;
+  render();
 };
 
 /* ================================================================
@@ -846,39 +886,34 @@ window.autoFetchFromGitHub=async()=>{
 
   const log=(msg)=>{ logEl.innerHTML+=`<div>${msg}</div>`; logEl.scrollTop=logEl.scrollHeight; };
   logEl.innerHTML='';
+  log(`Fetching files for ${S.selectedRepos.length} repo${S.selectedRepos.length!==1?'s':''}…`);
 
   let totalFiles=0;
+  try{
+    const data=await api('/api/github/fetch-mule-files',{
+      org:   S.githubOrg,
+      repos: S.selectedRepos,
+      token: S.githubToken,
+    });
 
-  for(const repoName of S.selectedRepos){
-    const repo=S.repos.find(r=>r.name===repoName);
-    if(!repo){ log(`<span style="color:var(--warn)">⚠ repo ${esc(repoName)} not found in repo list — skipping</span>`); continue; }
+    for(const repoResult of (data.results||[])){
+      const {repo:repoName,files,error}=repoResult;
+      if(error){ log(`<span style="color:var(--warn)">⚠ ${esc(repoName)}: ${esc(error)}</span>`); continue; }
 
-    log(`<span style="color:var(--ink)">→ ${esc(repo.fullName)}</span>`);
+      const muleXmls=files.filter(f=>f.type==='mule-xml');
+      const others=files.filter(f=>f.type!=='mule-xml');
+      log(`<span style="color:var(--ink)">→ ${esc(repoName)}</span> — ${muleXmls.length} Mule XML${others.length?`, ${others.length} other file${others.length!==1?'s':''}`:''}`);
 
-    let xmlFiles;
-    try{
-      const td=await api('/api/github/tree',{fullName:repo.fullName,branch:repo.defaultBranch||'main',token:S.githubToken});
-      // Prefer src/main/mule/*.xml; fall back to any .xml in the tree
-      xmlFiles=td.files.filter(f=>f.path.endsWith('.xml')&&/src[/\\]main[/\\]mule/i.test(f.path));
-      if(!xmlFiles.length) xmlFiles=td.files.filter(f=>f.path.endsWith('.xml'));
-      log(`&nbsp;&nbsp;${xmlFiles.length} XML file${xmlFiles.length!==1?'s':''} found`);
-      if(!xmlFiles.length){ log(`&nbsp;&nbsp;<span style="color:var(--ink3)">no XML files — skipping</span>`); continue; }
-    }catch(e){ log(`&nbsp;&nbsp;<span style="color:var(--err)">✗ tree error: ${esc(e.message)}</span>`); continue; }
+      const tier=/experience/i.test(repoName)?'experience':/process/i.test(repoName)?'process':'system';
 
-    const tier=/experience/i.test(repo.name)?'experience':/process/i.test(repo.name)?'process':'system';
-
-    for(const f of xmlFiles){
-      const fname=f.path.split('/').pop();
-      log(`&nbsp;&nbsp;fetching <span style="color:var(--ink)">${esc(fname)}</span>…`);
-      try{
-        const fd=await api('/api/github/file',{fullName:repo.fullName,filePath:f.path,token:S.githubToken});
-        if(!/<mule[\s>]/.test(fd.content)){ log(`&nbsp;&nbsp;<span style="color:var(--ink3)">↷ ${esc(fname)} — not a Mule flow XML, skipped</span>`); continue; }
-
-        if(!S.projects[repo.name]){
-          S.projects[repo.name]=analyseXml(repo.name,tier,fd.content);
+      for(const f of muleXmls){
+        const fname=f.path.split('/').pop();
+        if(!/<mule[\s>]/.test(f.content)){ log(`&nbsp;&nbsp;<span style="color:var(--ink3)">↷ ${esc(fname)} — not a Mule flow XML</span>`); continue; }
+        if(!S.projects[repoName]){
+          S.projects[repoName]=analyseXml(repoName,tier,f.content);
         }else{
-          const add=analyseXml(repo.name,tier,fd.content);
-          const p=S.projects[repo.name];
+          const add=analyseXml(repoName,tier,f.content);
+          const p=S.projects[repoName];
           p.flows          =[...p.flows,...add.flows];
           p.flowCount     +=add.flowCount;
           p.dwlCount      +=add.dwlCount;
@@ -894,10 +929,10 @@ window.autoFetchFromGitHub=async()=>{
           p.orchChains=[p.orchChains,add.orchChains].filter(s=>s!=='none').join('|')||'none';
         }
         totalFiles++;
-        log(`&nbsp;&nbsp;<span style="color:var(--ok)">✓ ${esc(fname)} — ${S.projects[repo.name].flowCount} flows total</span>`);
-      }catch(e){ log(`&nbsp;&nbsp;<span style="color:var(--err)">✗ ${esc(fname)}: ${esc(e.message)}</span>`); }
+        log(`&nbsp;&nbsp;<span style="color:var(--ok)">✓ ${esc(fname)} — ${S.projects[repoName].flowCount} flows</span>`);
+      }
     }
-  }
+  }catch(e){ log(`<span style="color:var(--err)">✗ ${esc(e.message)}</span>`); }
 
   log(`<span style="color:var(--ok)">✓ Done — ${totalFiles} file${totalFiles!==1?'s':''} parsed, ${Object.keys(S.projects).length} project${Object.keys(S.projects).length!==1?'s':''}</span>`);
   if(btn) btn.disabled=false;
