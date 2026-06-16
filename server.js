@@ -240,9 +240,13 @@ app.post('/api/anypoint/auth', async (req, res) => {
       username:     meR.data.user?.username,
     });
   } catch (e) {
+    const d = e.response?.data;
+    const msg = (d && typeof d === 'object')
+      ? (d.error_description || d.message || d.error || d.error_message || JSON.stringify(d))
+      : e.message;
     res.status(401).json({
-      error: e.response?.data?.message || e.response?.data?.error || e.message,
-      hint: 'Check credentials. Connected App needs "Runtime Manager" and "API Manager" scopes.',
+      error: msg,
+      hint: 'Connected App must be set to "Act on its own behalf" with Runtime Manager + API Manager scopes.',
     });
   }
 });
