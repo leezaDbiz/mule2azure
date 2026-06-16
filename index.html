@@ -736,24 +736,37 @@ function analyseXml(name, tier, xml){
 VIEWS[4]=()=>`
   <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Parse applications</span></div>
   <h2 class="pt">Parse & classify Mule applications</h2>
-  <p class="ps">Upload Mule XML files or paste content directly. The parser reads flows, connectors, DataWeave transforms, error handlers, Object Store, and SAP configs.</p>
+  <p class="ps">Mule XML files are fetched automatically from your selected GitHub repos and parsed for flows, connectors, DataWeave transforms, error handlers, Object Store, and SAP configs.</p>
+  ${S.selectedRepos.length?`
   <div class="card">
-    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Upload Mule XML files</div>
-    <input type="file" id="xmlUpload" multiple accept=".xml,.raml,.dwl" onchange="handleFileUpload(this.files)"
-      style="font-size:12px;color:var(--ink2);margin-bottom:12px;display:block">
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Or paste XML directly:</div>
-    <textarea class="inp" id="xmlPaste" rows="6" placeholder="Paste Mule flow XML here…" style="font-family:var(--mono);font-size:11.5px;resize:vertical"></textarea>
-    <div class="inp-row" style="margin-top:10px">
-      <input class="inp" id="xmlName" placeholder="project name (e.g. order-process-api)" style="flex:1">
-      <select class="inp" id="xmlTier" style="width:160px;flex-shrink:0">
-        <option value="experience">Experience</option>
-        <option value="process">Process</option>
-        <option value="system">System</option>
-      </select>
-      <button class="btn btn-p" onclick="parseXml()">Parse</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:600">Auto-fetch from GitHub <span style="font-weight:400;color:var(--ink2);font-size:12px">(${S.selectedRepos.length} repo${S.selectedRepos.length!==1?'s':''})</span></div>
+      <button class="btn btn-g" id="autoFetchBtn" onclick="autoFetchFromGitHub()" style="padding:5px 14px;font-size:12px">↻ Re-fetch</button>
     </div>
-    <div id="parseStatus"></div>
-  </div>
+    <div style="margin-bottom:10px">${S.selectedRepos.map(n=>`<span class="pill ok" style="margin-right:4px;font-size:11px">${esc(n)}</span>`).join('')}</div>
+    <div id="fetchLog" style="background:var(--bg);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--ink2);max-height:180px;overflow-y:auto;min-height:32px;border:1px solid var(--bdr)">
+      ${Object.keys(S.projects).length?`<span style="color:var(--ok)">✓ ${Object.keys(S.projects).length} project${Object.keys(S.projects).length!==1?'s':''} parsed — click Re-fetch to update</span>`:'<span style="color:var(--ink3)">Preparing…</span>'}
+    </div>
+  </div>`:''}
+  <details ${S.selectedRepos.length?'':'open'} style="margin-bottom:14px">
+    <summary style="font-size:12px;color:var(--ink3);cursor:pointer;padding:4px 0">${S.selectedRepos.length?'Manual upload / paste (fallback)':'Upload Mule XML files'}</summary>
+    <div class="card" style="margin-top:8px">
+      <input type="file" id="xmlUpload" multiple accept=".xml,.raml,.dwl" onchange="handleFileUpload(this.files)"
+        style="font-size:12px;color:var(--ink2);margin-bottom:12px;display:block">
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Or paste XML directly:</div>
+      <textarea class="inp" id="xmlPaste" rows="6" placeholder="Paste Mule flow XML here…" style="font-family:var(--mono);font-size:11.5px;resize:vertical"></textarea>
+      <div class="inp-row" style="margin-top:10px">
+        <input class="inp" id="xmlName" placeholder="project name (e.g. order-process-api)" style="flex:1">
+        <select class="inp" id="xmlTier" style="width:160px;flex-shrink:0">
+          <option value="experience">Experience</option>
+          <option value="process">Process</option>
+          <option value="system">System</option>
+        </select>
+        <button class="btn btn-p" onclick="parseXml()">Parse</button>
+      </div>
+      <div id="parseStatus"></div>
+    </div>
+  </details>
   <div id="parseResults" class="${Object.keys(S.projects).length?'':'hide'}">
     ${renderParseResults()}
   </div>`;
@@ -816,6 +829,84 @@ window.parseXml=()=>{
   document.getElementById('parseResults').classList.remove('hide');
   document.getElementById('parseResults').innerHTML=renderParseResults();
   document.getElementById('parseStatus').innerHTML=`<div class="banner ok" style="margin-top:10px"><div class="ic">✓</div><div>${esc(name)} parsed — ${S.projects[name].flowCount} flows, ${S.projects[name].dwlCount} DWL transforms</div></div>`;
+};
+
+BINDS[4]=()=>{
+  // Auto-trigger on first visit when repos are selected and nothing parsed yet
+  if(S.selectedRepos.length && !Object.keys(S.projects).length){
+    setTimeout(autoFetchFromGitHub, 80);
+  }
+};
+
+window.autoFetchFromGitHub=async()=>{
+  const logEl=document.getElementById('fetchLog');
+  const btn=document.getElementById('autoFetchBtn');
+  if(!logEl) return;
+  if(btn) btn.disabled=true;
+
+  const log=(msg)=>{ logEl.innerHTML+=`<div>${msg}</div>`; logEl.scrollTop=logEl.scrollHeight; };
+  logEl.innerHTML='';
+
+  let totalFiles=0;
+
+  for(const repoName of S.selectedRepos){
+    const repo=S.repos.find(r=>r.name===repoName);
+    if(!repo){ log(`<span style="color:var(--warn)">⚠ repo ${esc(repoName)} not found in repo list — skipping</span>`); continue; }
+
+    log(`<span style="color:var(--ink)">→ ${esc(repo.fullName)}</span>`);
+
+    let xmlFiles;
+    try{
+      const td=await api('/api/github/tree',{fullName:repo.fullName,branch:repo.defaultBranch||'main',token:S.githubToken});
+      // Prefer src/main/mule/*.xml; fall back to any .xml in the tree
+      xmlFiles=td.files.filter(f=>f.path.endsWith('.xml')&&/src[/\\]main[/\\]mule/i.test(f.path));
+      if(!xmlFiles.length) xmlFiles=td.files.filter(f=>f.path.endsWith('.xml'));
+      log(`&nbsp;&nbsp;${xmlFiles.length} XML file${xmlFiles.length!==1?'s':''} found`);
+      if(!xmlFiles.length){ log(`&nbsp;&nbsp;<span style="color:var(--ink3)">no XML files — skipping</span>`); continue; }
+    }catch(e){ log(`&nbsp;&nbsp;<span style="color:var(--err)">✗ tree error: ${esc(e.message)}</span>`); continue; }
+
+    const tier=/experience/i.test(repo.name)?'experience':/process/i.test(repo.name)?'process':'system';
+
+    for(const f of xmlFiles){
+      const fname=f.path.split('/').pop();
+      log(`&nbsp;&nbsp;fetching <span style="color:var(--ink)">${esc(fname)}</span>…`);
+      try{
+        const fd=await api('/api/github/file',{fullName:repo.fullName,filePath:f.path,token:S.githubToken});
+        if(!/<mule[\s>]/.test(fd.content)){ log(`&nbsp;&nbsp;<span style="color:var(--ink3)">↷ ${esc(fname)} — not a Mule flow XML, skipped</span>`); continue; }
+
+        if(!S.projects[repo.name]){
+          S.projects[repo.name]=analyseXml(repo.name,tier,fd.content);
+        }else{
+          const add=analyseXml(repo.name,tier,fd.content);
+          const p=S.projects[repo.name];
+          p.flows          =[...p.flows,...add.flows];
+          p.flowCount     +=add.flowCount;
+          p.dwlCount      +=add.dwlCount;
+          p.connectors     =[...new Set([...p.connectors,...add.connectors])];
+          p.hasSAP         =p.hasSAP||add.hasSAP;
+          p.hasObjectStore =p.hasObjectStore||add.hasObjectStore;
+          p.hasIdempotency =p.hasIdempotency||add.hasIdempotency;
+          p.hasErrorHandler=p.hasErrorHandler||add.hasErrorHandler;
+          p.hasBatch       =p.hasBatch||add.hasBatch;
+          p.orchFlows      =[...p.orchFlows,...add.orchFlows];
+          p.endpointFlows  =[...p.endpointFlows,...add.endpointFlows];
+          p.reconnectCount+=add.reconnectCount;
+          p.orchChains=[p.orchChains,add.orchChains].filter(s=>s!=='none').join('|')||'none';
+        }
+        totalFiles++;
+        log(`&nbsp;&nbsp;<span style="color:var(--ok)">✓ ${esc(fname)} — ${S.projects[repo.name].flowCount} flows total</span>`);
+      }catch(e){ log(`&nbsp;&nbsp;<span style="color:var(--err)">✗ ${esc(fname)}: ${esc(e.message)}</span>`); }
+    }
+  }
+
+  log(`<span style="color:var(--ok)">✓ Done — ${totalFiles} file${totalFiles!==1?'s':''} parsed, ${Object.keys(S.projects).length} project${Object.keys(S.projects).length!==1?'s':''}</span>`);
+  if(btn) btn.disabled=false;
+
+  const resultsEl=document.getElementById('parseResults');
+  if(resultsEl&&Object.keys(S.projects).length){
+    resultsEl.classList.remove('hide');
+    resultsEl.innerHTML=renderParseResults();
+  }
 };
 
 /* ================================================================
