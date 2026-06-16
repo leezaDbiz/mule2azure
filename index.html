@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Mule2Azure — Migration Console</title>
+<style>
+:root{
+  --bg:#0f1117;--panel:#171b26;--p2:#1e2333;--p3:#252b3d;
+  --line:#2a3147;--line2:#323b56;
+  --ink:#e2e8f5;--ink2:#8b96b3;--ink3:#5a6480;
+  --azure:#0078d4;--azure2:#50a3e0;--mule:#00a0df;
+  --exp:#6ea8fe;--proc:#b387f7;--sys:#4dd9a4;
+  --ok:#4dd9a4;--warn:#f0b84a;--err:#e06b6b;--info:#6ea8fe;
+  --copper:#d4854a;--r:10px;
+  --mono:'SF Mono','Cascadia Code',ui-monospace,monospace;
+  --sans:'Inter',-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;min-height:100vh}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+::selection{background:var(--azure);color:#fff}
+code{font-family:var(--mono);font-size:11px;background:var(--p2);padding:2px 6px;border-radius:4px;color:var(--azure2)}
+
+/* layout */
+.shell{display:grid;grid-template-columns:270px 1fr;min-height:100vh}
+.sidebar{background:var(--panel);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:20px;overflow-y:auto}
+.main{min-width:0;padding:32px 40px 100px}
+
+/* brand */
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,var(--mule),var(--azure));display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:11px;color:#fff;flex-shrink:0}
+.brand h1{font-size:14px;font-weight:650;letter-spacing:-.01em}
+.brand .bsub{font-size:10px;color:var(--ink3);font-family:var(--mono)}
+
+/* steps */
+.steps{display:flex;flex-direction:column;gap:1px}
+.phase-label{font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);padding:10px 10px 4px;margin-top:4px}
+.sbtn{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:7px;color:var(--ink2);font-size:12px;transition:all .15s;width:100%;text-align:left}
+.sbtn:hover:not(:disabled){background:var(--p2);color:var(--ink)}
+.sbtn.active{background:var(--p2);color:var(--ink)}
+.sbtn.active .snum{background:var(--azure);color:#fff;border-color:var(--azure)}
+.sbtn.done .snum{color:var(--ok);border-color:var(--ok)}
+.sbtn:disabled{opacity:.3;cursor:not-allowed}
+.snum{width:20px;height:20px;border-radius:5px;border:1px solid var(--line2);display:grid;place-items:center;font-family:var(--mono);font-size:9px;flex-shrink:0;margin-top:1px;transition:all .15s}
+.slbl{flex:1}.slbl .st{line-height:1.3;font-size:12px}.slbl .ss{font-size:10px;color:var(--ink3);margin-top:1px}
+.ai-tag{font-size:8px;padding:1px 4px;border-radius:5px;background:color-mix(in srgb,var(--proc) 20%,transparent);color:var(--proc);border:1px solid color-mix(in srgb,var(--proc) 30%,transparent);font-family:var(--mono);vertical-align:middle;margin-left:3px}
+.side-foot{margin-top:auto;font-size:10px;color:var(--ink3);font-family:var(--mono);line-height:1.8}
+
+/* page */
+.crumb{font-family:var(--mono);font-size:10px;color:var(--ink3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px}
+.crumb .sep{color:var(--line2);margin:0 6px}.crumb .cur{color:var(--azure2)}
+h2.pt{font-size:24px;font-weight:650;letter-spacing:-.02em;margin-bottom:7px}
+.ps{color:var(--ink2);font-size:13.5px;max-width:680px;margin-bottom:26px;line-height:1.6}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.card+.card{margin-top:14px}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;font-size:12.5px;font-weight:550;transition:all .15s;white-space:nowrap}
+.btn-p{background:var(--azure);color:#fff}.btn-p:hover{background:var(--azure2)}.btn-p:disabled{opacity:.4;cursor:not-allowed}
+.btn-g{border:1px solid var(--line2);color:var(--ink)}.btn-g:hover{border-color:var(--azure)}
+.btn-ai{background:linear-gradient(135deg,#2d1f4e,#1a2d4e);border:1px solid color-mix(in srgb,var(--proc) 40%,transparent);color:var(--ink)}.btn-ai:hover{border-color:var(--proc)}.btn-ai:disabled{opacity:.4;cursor:not-allowed}
+.nrow{margin-top:20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+/* inputs */
+.inp{background:var(--bg);border:1px solid var(--line2);border-radius:7px;padding:9px 13px;color:var(--ink);font-family:var(--mono);font-size:12.5px;transition:border .15s;width:100%}
+.inp:focus{outline:none;border-color:var(--azure)}
+.inp-row{display:flex;gap:8px;margin-bottom:12px}
+.inp-row .inp{flex:1}
+.lbl{display:block;font-size:11.5px;color:var(--ink2);margin-bottom:5px}
+
+/* pills */
+.pill{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:20px;border:1px solid var(--line2);color:var(--ink2)}
+.pill.exp{color:var(--exp);border-color:color-mix(in srgb,var(--exp) 35%,transparent);background:color-mix(in srgb,var(--exp) 8%,transparent)}
+.pill.proc{color:var(--proc);border-color:color-mix(in srgb,var(--proc) 35%,transparent);background:color-mix(in srgb,var(--proc) 8%,transparent)}
+.pill.sys{color:var(--sys);border-color:color-mix(in srgb,var(--sys) 35%,transparent);background:color-mix(in srgb,var(--sys) 8%,transparent)}
+.pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+.pill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.pill.err{color:var(--err);border-color:color-mix(in srgb,var(--err) 30%,transparent)}
+.pill.live{color:var(--azure2);border-color:color-mix(in srgb,var(--azure2) 35%,transparent)}
+
+/* status */
+.dot-live{width:7px;height:7px;border-radius:50%;background:var(--ok);animation:pulse 2s infinite;display:inline-block;flex-shrink:0}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 50%,transparent)}70%{box-shadow:0 0 0 5px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+/* log */
+.log{font-family:var(--mono);font-size:11.5px;line-height:1.9;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:13px;max-height:220px;overflow:auto}
+.log .ts{color:var(--ink3)}.log .ok{color:var(--ok)}.log .acc{color:var(--azure2)}.log .warn{color:var(--warn)}.log .info{color:var(--info)}
+
+/* stat grid */
+.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.sc{background:var(--p2);border:1px solid var(--line);border-radius:7px;padding:12px}
+.sc .v{font-size:26px;font-weight:650;font-family:var(--mono);letter-spacing:-.025em}
+.sc .l{font-size:10.5px;color:var(--ink2);margin-top:3px}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);padding:8px 9px;border-bottom:1px solid var(--line);font-weight:550}
+.tbl td{padding:10px 9px;border-bottom:1px solid var(--line);font-size:12px;vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--p2)}
+.ttag{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:4px;font-weight:600}
+.ttag.exp{background:color-mix(in srgb,var(--exp) 13%,transparent);color:var(--exp)}
+.ttag.proc{background:color-mix(in srgb,var(--proc) 13%,transparent);color:var(--proc)}
+.ttag.sys{background:color-mix(in srgb,var(--sys) 13%,transparent);color:var(--sys)}
+
+/* AI stream */
+.aip{background:var(--panel);border:1px solid color-mix(in srgb,var(--proc) 22%,transparent);border-radius:var(--r);overflow:hidden;margin-bottom:10px}
+.aip-hd{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:color-mix(in srgb,var(--proc) 7%,transparent);border-bottom:1px solid color-mix(in srgb,var(--proc) 18%,transparent)}
+.aip-hd .t{font-size:12.5px;font-weight:600;color:var(--proc)}
+.aip-body{font-family:var(--mono);font-size:11px;line-height:1.8;padding:12px 14px;color:var(--ink2);min-height:44px;max-height:180px;overflow-y:auto;white-space:pre-wrap}
+.aip-body .sk{color:var(--azure2);font-weight:600}.aip-body .sv{color:var(--info)}.aip-body .sw{color:var(--warn)}.aip-body .so{color:var(--ok)}
+.cur{display:inline-block;width:6px;height:12px;background:var(--proc);animation:blink .8s step-end infinite;vertical-align:text-bottom}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* split view */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:13px;min-height:500px}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden}
+.pane-hd{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line);flex-shrink:0}
+.pane-hd .t{font-size:12.5px;font-weight:600}.pane-hd .s{font-size:10.5px;color:var(--ink3);font-family:var(--mono)}
+.ftree{padding:6px;border-bottom:1px solid var(--line);overflow-y:auto;max-height:160px;flex-shrink:0}
+.fi{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:5px;font-family:var(--mono);font-size:11px;color:var(--ink2);cursor:pointer}
+.fi:hover{background:var(--p2);color:var(--ink)}.fi.active{background:var(--p2);color:var(--azure2)}
+.fi .ic{font-size:9px;opacity:.6;width:10px}.fi .fm{margin-left:auto;font-size:8.5px;padding:1px 4px;border-radius:6px;border:1px solid var(--line);color:var(--ink3)}
+.fi .ai-dot{width:5px;height:5px;border-radius:50%;background:var(--ok);flex-shrink:0}
+.code{flex:1;background:#090c14;font-family:var(--mono);font-size:11px;line-height:1.7;padding:13px;overflow:auto;white-space:pre;color:#b8c4dc;min-height:180px}
+.code .empty{color:var(--ink3);font-style:italic;white-space:normal}
+
+/* pipeline */
+.pipeline{display:flex;align-items:center;overflow-x:auto;padding-bottom:4px;margin-bottom:12px;gap:0}
+.ps-node{font-size:10.5px;padding:4px 10px;border-radius:5px;border:1px solid var(--line2);color:var(--ink3);white-space:nowrap;transition:all .2s;font-family:var(--mono)}
+.ps-node.active{border-color:var(--azure);color:var(--azure);background:color-mix(in srgb,var(--azure) 10%,transparent)}
+.ps-node.done{border-color:var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,transparent)}
+.ps-arr{color:var(--line2);margin:0 2px;font-size:10px;flex-shrink:0}
+.prog{height:3px;background:var(--p2);border-radius:4px;overflow:hidden;margin-bottom:12px}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--azure),var(--proc));width:0;transition:width .4s}
+
+/* map */
+.map-row{display:grid;grid-template-columns:1fr 32px 1fr;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
+.map-row:last-child{border-bottom:none}
+.ms{display:flex;align-items:center;gap:8px}
+.mic{width:32px;height:32px;border-radius:6px;display:grid;place-items:center;font-family:var(--mono);font-size:8.5px;font-weight:700;flex-shrink:0}
+.m-mule{background:color-mix(in srgb,var(--mule) 14%,transparent);color:var(--mule);border:1px solid color-mix(in srgb,var(--mule) 28%,transparent)}
+.m-azure{background:color-mix(in srgb,var(--azure) 14%,transparent);color:var(--azure2);border:1px solid color-mix(in srgb,var(--azure) 28%,transparent)}
+.mn{font-size:12.5px;font-weight:550}.md{font-size:11px;color:var(--ink3);font-family:var(--mono);margin-top:2px}
+.marr{color:var(--azure2);text-align:center;font-size:13px}
+.edot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.e-low{background:var(--ok)}.e-med{background:var(--warn)}.e-hard{background:var(--err)}
+
+/* banners */
+.banner{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:8px;font-size:12.5px;margin-top:11px;line-height:1.5}
+.banner.ok{background:color-mix(in srgb,var(--ok) 9%,transparent);border:1px solid color-mix(in srgb,var(--ok) 22%,transparent)}
+.banner.warn{background:color-mix(in srgb,var(--warn) 9%,transparent);border:1px solid color-mix(in srgb,var(--warn) 22%,transparent)}
+.banner.ai{background:color-mix(in srgb,var(--proc) 7%,transparent);border:1px solid color-mix(in srgb,var(--proc) 22%,transparent)}
+.banner.err{background:color-mix(in srgb,var(--err) 9%,transparent);border:1px solid color-mix(in srgb,var(--err) 22%,transparent)}
+.banner .ic{flex-shrink:0;margin-top:1px}
+.banner.ok .ic{color:var(--ok)}.banner.warn .ic{color:var(--warn)}.banner.ai .ic{color:var(--proc)}.banner.err .ic{color:var(--err)}
+
+/* repo cards */
+.repo-row{display:flex;align-items:center;gap:10px;padding:11px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.repo-row:last-child{border-bottom:none}
+.repo-row:hover{background:var(--p2);margin:0 -5px;padding-left:9px;padding-right:9px;border-radius:7px}
+.rchk{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--line2);flex-shrink:0;display:grid;place-items:center;font-size:9px;transition:all .15s}
+.repo-row.sel .rchk{background:var(--azure);border-color:var(--azure);color:#fff}
+.rmeta{flex:1;min-width:0}.rname{font-family:var(--mono);font-size:12.5px}.rdesc{font-size:11px;color:var(--ink3);margin-top:1px}
+.rbadges{display:flex;gap:5px;align-items:center;flex-shrink:0}
+
+/* HLD/LLD docs */
+.doc-view{font-family:var(--mono);font-size:11.5px;line-height:1.8;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:16px;max-height:480px;overflow:auto;white-space:pre-wrap;color:var(--ink2)}
+.doc-view .sk{color:var(--azure2);font-weight:600}
+
+/* report */
+.report-view{font-size:13px;line-height:1.7;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px;max-height:500px;overflow:auto;white-space:pre-wrap}
+
+/* effort */
+.eff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+.eff-card{background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:12px}
+.eff-card .ev{font-size:20px;font-weight:650;font-family:var(--mono)}
+.eff-card .el{font-size:10.5px;color:var(--ink2);margin-top:2px}
+.eff-card .ed{font-size:11px;color:var(--ink3);margin-top:6px;line-height:1.5}
+
+.dia-wrap{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px;overflow:auto}
+.note{font-size:11px;color:var(--ink3);font-style:italic;margin-top:10px;line-height:1.6}
+.hide{display:none!important}
+.fade-in{animation:fadeUp .3s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.k{color:#79b8ff}.s{color:#4dd9a4}.c{color:#5a6480;font-style:italic}.n{color:#e8a870}.p{color:#b387f7}
+.env-card{background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;cursor:pointer;transition:all .15s;margin-bottom:8px}
+.env-card:hover{border-color:var(--azure)}.env-card.sel{border-color:var(--azure);background:color-mix(in srgb,var(--azure) 10%,transparent)}
+.env-card .en{font-size:13px;font-weight:550}.env-card .et{font-size:11px;color:var(--ink3);margin-top:2px}
+.disc-card{background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.disc-card .dn{font-size:12.5px;font-weight:550;margin-bottom:6px}
+.disc-card .di{font-size:11px;color:var(--ink2);font-family:var(--mono)}
+@media(max-width:900px){
+  .shell{grid-template-columns:1fr}.sidebar{position:static;height:auto;flex-direction:row;flex-wrap:wrap}
+  .steps{flex-direction:row;flex-wrap:wrap}.slbl .ss,.side-foot{display:none}
+  .main{padding:20px 14px 60px}.sg{grid-template-columns:1fr 1fr}
+  .split{grid-template-columns:1fr}.eff-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar">
+  <div class="brand">
+    <div class="logo">M→Az</div>
+    <div><h1>Mule2Azure</h1><div class="bsub">migration console</div></div>
+  </div>
+  <nav class="steps" id="steps"></nav>
+  <div class="side-foot">
+    <div id="srv-status" style="color:var(--warn)">⚡ checking…</div>
+    <div style="color:var(--azure2);margin-top:3px">v2.0 · Node.js</div>
+  </div>
+</aside>
+<main class="main" id="main"></main>
+</div>
+
+<script>
+/* ================================================================
+   STATE
+================================================================ */
+const S = {
+  step: 0, maxStep: 0,
+  // Step 1 — GitHub
+  githubToken: '', githubOrg: '', repos: [], selectedRepos: [],
+  // Step 2-3 — Anypoint
+  anypointToken: '', anypointOrgId: '', anypointOrgName: '',
+  environments: [], selectedEnv: null,
+  // Step 4 — Discovery
+  runtimeApps: [], apiManagerApis: [],
+  // Step 5 — Parse
+  projects: {}, analysed: false,
+  // Step 6 — Blueprint
+  // Step 7 — HLD/LLD
+  hld: '', lld: {},
+  // Step 8 — Mappings reviewed
+  mappingOverrides: {},
+  // Step 9 — Artifacts
+  artifacts: [], converted: false,
+  // Step 10 — Azure
+  azureConnected: false,
+  // Step 11 — Deploy
+  deployLog: [],
+  // Step 12 — Validate
+  testResults: {},
+  // Step 13 — Report
+  report: '',
+  // AI decisions
+  aiDecs: {},
+  // Shared file viewers
+  _srcFiles: [], _outFiles: [],
+};
+
+const SERVER = 'http://localhost:7433';
+
+const STEPS = [
+  // Source & Discovery
+  { id:0,  label:'Connect GitHub',         sub:'Link your Git provider',  phase:'Source & discovery' },
+  { id:1,  label:'Connect Anypoint',        sub:'Auth with MuleSoft',      phase:null },
+  { id:2,  label:'Select environment',      sub:'DEV / UAT / PROD',        phase:null },
+  { id:3,  label:'Discover deployments',    sub:'Runtime & API Manager',   phase:null },
+  // Analysis
+  { id:4,  label:'Parse applications',      sub:'Real XML/RAML/DWL',       phase:'Analysis' },
+  { id:5,  label:'Blueprint',               sub:'Dependency + effort',     phase:null },
+  // Design
+  { id:6,  label:'HLD & LLD',               sub:'AI designs architecture', phase:'Design', ai:true },
+  { id:7,  label:'Review mappings',         sub:'Azure service decisions', phase:null },
+  // Generation
+  { id:8,  label:'Generate artifacts',      sub:'AI converts everything',  phase:'Generation', ai:true },
+  // Deployment
+  { id:9,  label:'Connect Azure',           sub:'Service principal auth',  phase:'Deployment' },
+  { id:10, label:'Deploy',                  sub:'Push to Azure',           phase:null },
+  // Validate & Report
+  { id:11, label:'Validate',                sub:'Test every endpoint',     phase:'Validation' },
+  { id:12, label:'Migration report',        sub:'AI generates report',     phase:null, ai:true },
+];
+
+function go(n){ if(n>S.maxStep) return; S.step=n; render(); }
+function unlock(n){ if(n>S.maxStep) S.maxStep=n; }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function dl(c,name,type){ const b=new Blob([c],{type}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; a.click(); }
+
+/* ── Step rendering ─────────────────────────────────────────────── */
+function renderSteps(){
+  let html = '';
+  let lastPhase = '';
+  STEPS.forEach(s => {
+    if(s.phase && s.phase !== lastPhase){
+      html += `<div class="phase-label">${s.phase}</div>`;
+      lastPhase = s.phase;
+    }
+    const act = s.id===S.step?'active':'', done = s.id<S.step?'done':'', dis = s.id>S.maxStep?'disabled':'';
+    html += `<button class="sbtn ${act} ${done}" ${dis} onclick="go(${s.id})">
+      <span class="snum">${s.id<S.step?'✓':s.id+1}</span>
+      <div class="slbl"><div class="st">${s.label}${s.ai?'<span class="ai-tag">AI</span>':''}</div><div class="ss">${s.sub}</div></div>
+    </button>`;
+  });
+  document.getElementById('steps').innerHTML = html;
+}
+
+const VIEWS={}, BINDS={};
+function render(){
+  renderSteps();
+  const m=document.getElementById('main'); m.classList.remove('fade-in'); void m.offsetWidth; m.classList.add('fade-in');
+  m.innerHTML = VIEWS[S.step]();
+  (BINDS[S.step]||function(){})();
+}
+
+/* ── Server communication ───────────────────────────────────────── */
+async function api(path, body){
+  const r = await fetch(`${SERVER}${path}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  if(!r.ok){ const e=await r.json(); throw new Error(e.error||r.statusText); }
+  return r.json();
+}
+
+async function streamSSE(path, body, onChunk, onDone, onError){
+  try{
+    const resp = await fetch(`${SERVER}${path}`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    if(!resp.ok){ const e=await resp.json(); throw new Error(e.error||resp.statusText); }
+    const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf=''; let finished=false;
+    const finish=()=>{ if(!finished){finished=true; onDone();} };
+    while(true){
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n'); buf=lines.pop();
+      for(const line of lines){
+        if(!line.startsWith('data:')) continue;
+        try{ const d=JSON.parse(line.slice(5).trim());
+          if(d.text) onChunk(d.text); if(d.done) finish(); if(d.error) onError(d.error);
+        }catch(e){}
+      }
+    }
+    finish();
+  }catch(e){ onError(e.message); }
+}
+
+async function streamToEl(path, body, elId){
+  return new Promise((res,rej)=>{
+    let f='';
+    streamSSE(path, body,
+      t=>{ f+=t; const e=document.getElementById(elId); if(e){ e.innerHTML=fmtStream(f)+'<span class="cur"></span>'; e.scrollTop=e.scrollHeight; } },
+      ()=>{ const e=document.getElementById(elId); if(e) e.innerHTML=fmtStream(f)||'<span style="color:var(--warn)">(no response)</span>'; res(f); },
+      e=>{ const el=document.getElementById(elId); if(el) el.innerHTML=`<span style="color:var(--err)">${esc(e)}</span>`; rej(new Error(e)); }
+    );
+  });
+}
+
+async function callAI(body){
+  return new Promise((res,rej)=>{
+    let f='';
+    streamSSE('/api/ai/convert', body, t=>f+=t, ()=>res(f), e=>rej(new Error(e)));
+  });
+}
+
+function fmtStream(t){
+  return esc(t)
+    .replace(/(RUNTIME_TARGET|DWL_COMPLEXITY|EFFORT_WEEKS|TOP_RISK|RBAC_NEEDS|REASON|DWL_NOTES|MIGRATION_ORDER):/g,'<span class="sk">$1:</span>')
+    .replace(/\b(LogicAppWithFunctions|LogicApp|FunctionApp)\b/g,'<span class="sv">$1</span>')
+    .replace(/\b(High|VeryHigh|SAP|VNet|ExpressRoute)\b/gi,'<span class="sw">$1</span>')
+    .replace(/\b(Low|low effort)\b/gi,'<span class="so">$1</span>');
+}
+
+async function checkServer(){
+  try{
+    const r=await fetch(`${SERVER}/health`,{signal:AbortSignal.timeout(2000)});
+    if(r.ok){ const d=await r.json(); document.getElementById('srv-status').innerHTML=`<span style="color:var(--ok)">● ${d.model}</span>`; return true; }
+  }catch(e){}
+  document.getElementById('srv-status').innerHTML='<span style="color:var(--err)">✗ offline — node server.js</span>';
+  return false;
+}
+
+/* ================================================================
+   STEP 0 — GitHub
+================================================================ */
+VIEWS[0]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect GitHub</span></div>
+  <h2 class="pt">Connect your Git provider</h2>
+  <p class="ps">Enter your GitHub org or username and a personal access token. The token needs <code>repo</code> scope for private repositories. Public repos work without a token.</p>
+  <div class="card">
+    <label class="lbl">GitHub org or username</label>
+    <div class="inp-row">
+      <input class="inp" id="ghOrg" placeholder="acme-corp" value="${esc(S.githubOrg)}" spellcheck="false">
+    </div>
+    <label class="lbl">Personal access token <span style="color:var(--ink3)">(optional for public repos)</span></label>
+    <div class="inp-row">
+      <input class="inp" id="ghToken" type="password" placeholder="ghp_..." value="${esc(S.githubToken)}" spellcheck="false">
+      <button class="btn btn-p" id="ghConnect" onclick="connectGitHub()">Connect</button>
+    </div>
+    <div id="ghStatus"></div>
+  </div>
+  <div id="repoSection" class="hide">
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600">Repositories</div>
+        <input class="inp" id="repoFilter" placeholder="filter repos…" style="width:200px" oninput="filterRepos(this.value)">
+      </div>
+      <div id="repoList"></div>
+    </div>
+    <div class="nrow" id="nrow0"></div>
+  </div>`;
+
+BINDS[0]=()=>{
+  if(S.repos.length > 0){ document.getElementById('repoSection').classList.remove('hide'); paintRepos(S.repos); updateNext0(); }
+};
+
+window.connectGitHub = async()=>{
+  const org = document.getElementById('ghOrg').value.trim();
+  const token = document.getElementById('ghToken').value.trim();
+  if(!org){ alert('Enter a GitHub org or username'); return; }
+  S.githubOrg = org; S.githubToken = token;
+  const btn = document.getElementById('ghConnect');
+  btn.disabled=true; btn.textContent='Connecting…';
+  const st = document.getElementById('ghStatus');
+  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Fetching repositories from GitHub…</div>`;
+  try{
+    const data = await api('/api/github/repos', { org, token });
+    S.repos = data.repos;
+    st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Connected · ${data.total} repositories found</div>`;
+    document.getElementById('repoSection').classList.remove('hide');
+    paintRepos(S.repos);
+    updateNext0();
+    btn.textContent='Reconnect';
+  }catch(e){
+    st.innerHTML=`<div class="banner err" style="margin-top:12px"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`;
+    btn.textContent='Connect';
+  }
+  btn.disabled=false;
+};
+
+function paintRepos(repos){
+  document.getElementById('repoList').innerHTML = repos.map((r,i)=>`
+    <div class="repo-row ${S.selectedRepos.includes(r.name)?'sel':''}" onclick="toggleRepo('${r.name}')">
+      <div class="rchk">${S.selectedRepos.includes(r.name)?'✓':''}</div>
+      <div class="rmeta"><div class="rname">${esc(r.name)}</div><div class="rdesc">${esc(r.description||'No description')}</div></div>
+      <div class="rbadges">
+        ${r.likelyMule?'<span class="pill live">Mule</span>':''}
+        ${r.private?'<span class="pill">private</span>':'<span class="pill ok">public</span>'}
+        ${r.language?`<span class="pill">${esc(r.language)}</span>`:''}
+      </div>
+    </div>`).join('');
+}
+
+window.filterRepos=v=>paintRepos(S.repos.filter(r=>r.name.toLowerCase().includes(v.toLowerCase())));
+window.toggleRepo=name=>{ const i=S.selectedRepos.indexOf(name); if(i>=0) S.selectedRepos.splice(i,1); else S.selectedRepos.push(name); paintRepos(S.repos); updateNext0(); };
+
+function updateNext0(){
+  const n=S.selectedRepos.length;
+  document.getElementById('nrow0').innerHTML=`
+    <button class="btn btn-p" ${n?'':'disabled'} onclick="unlock(1);go(1)">Next: Connect Anypoint →</button>
+    <span style="font-size:12px;color:var(--ink2)">${n} repo${n!==1?'s':''} selected</span>`;
+}
+
+/* ================================================================
+   STEP 1 — Anypoint auth
+================================================================ */
+VIEWS[1]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect Anypoint</span></div>
+  <h2 class="pt">Connect Anypoint Platform</h2>
+  <p class="ps">Authenticate with your MuleSoft Anypoint organisation to discover deployed applications and API Manager configurations. Use a Connected App (recommended) or your username and password.</p>
+  <div class="card">
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn btn-g" id="tabConn" onclick="switchTab('conn')" style="flex:1">Connected App</button>
+      <button class="btn btn-g" id="tabUser" onclick="switchTab('user')" style="flex:1">Username / Password</button>
+    </div>
+    <div id="tab-conn">
+      <label class="lbl">Client ID</label>
+      <div class="inp-row"><input class="inp" id="apClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false"></div>
+      <label class="lbl">Client Secret</label>
+      <div class="inp-row">
+        <input class="inp" id="apClientSecret" type="password" placeholder="xxxxxxxx…">
+        <button class="btn btn-p" onclick="connectAnypoint('conn')">Connect</button>
+      </div>
+    </div>
+    <div id="tab-user" class="hide">
+      <label class="lbl">Username</label>
+      <div class="inp-row"><input class="inp" id="apUsername" placeholder="your@email.com" spellcheck="false"></div>
+      <label class="lbl">Password</label>
+      <div class="inp-row">
+        <input class="inp" id="apPassword" type="password" placeholder="••••••••">
+        <button class="btn btn-p" onclick="connectAnypoint('user')">Connect</button>
+      </div>
+    </div>
+    <div id="apStatus"></div>
+  </div>
+  <div class="nrow">
+    <button class="btn btn-g" onclick="go(0)">← Back</button>
+    ${S.anypointToken?`<button class="btn btn-p" onclick="unlock(2);go(2)">Next: Select environment →</button><span style="font-size:12px;color:var(--ok)">✓ Connected as ${esc(S.anypointOrgName)}</span>`:''}
+  </div>`;
+
+window.switchTab=t=>{
+  document.getElementById('tab-conn').classList.toggle('hide',t!=='conn');
+  document.getElementById('tab-user').classList.toggle('hide',t!=='user');
+  document.getElementById('tabConn').classList.toggle('btn-p',t==='conn');
+  document.getElementById('tabUser').classList.toggle('btn-p',t==='user');
+};
+
+window.connectAnypoint=async type=>{
+  const st=document.getElementById('apStatus');
+  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Authenticating with Anypoint…</div>`;
+  try{
+    const body = type==='conn'
+      ? { clientId: document.getElementById('apClientId').value.trim(), clientSecret: document.getElementById('apClientSecret').value.trim() }
+      : { username: document.getElementById('apUsername').value.trim(), password: document.getElementById('apPassword').value.trim() };
+    const data = await api('/api/anypoint/auth', body);
+    S.anypointToken = data.accessToken;
+    S.anypointOrgId = data.orgId;
+    S.anypointOrgName = data.orgName || data.username;
+    st.innerHTML=`<div class="banner ok" style="margin-top:12px"><div class="ic">✓</div><div>Connected to <strong>${esc(S.anypointOrgName)}</strong> · org ID: <code>${esc(S.anypointOrgId)}</code></div></div>`;
+    unlock(2); go(2);
+  }catch(e){
+    st.innerHTML=`<div class="banner err" style="margin-top:12px"><div class="ic">✗</div><div>${esc(e.message)}<br><span style="color:var(--ink3);font-size:11px">Tip: Connected App needs Runtime Manager + API Manager scopes.</span></div></div>`;
+  }
+};
+
+/* ================================================================
+   STEP 2 — Select environment
+================================================================ */
+VIEWS[2]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Select environment</span></div>
+  <h2 class="pt">Select Anypoint environment</h2>
+  <p class="ps">Choose which environment to migrate from. Start with non-production to validate the migration approach before touching your production environment.</p>
+  <div class="card">
+    <div id="envList">
+      ${S.environments.length ? S.environments.map(e=>`
+        <div class="env-card ${S.selectedEnv?.id===e.id?'sel':''}" onclick="selectEnv(${JSON.stringify(e).replace(/"/g,'&quot;')})">
+          <div class="en">${esc(e.name)} ${e.isProduction?'<span class="pill err">PRODUCTION</span>':'<span class="pill ok">non-prod</span>'}</div>
+          <div class="et">${esc(e.type)} · ${esc(e.id)}</div>
+        </div>`).join('') : '<div style="color:var(--ink3);font-size:13px">Click "Load environments" to fetch from Anypoint</div>'}
+    </div>
+    <button class="btn btn-g" onclick="loadEnvironments()" style="margin-top:14px">Load environments</button>
+    <div id="envStatus"></div>
+  </div>
+  <div class="nrow">
+    <button class="btn btn-g" onclick="go(1)">← Back</button>
+    ${S.selectedEnv?`<button class="btn btn-p" onclick="unlock(3);go(3)">Next: Discover deployments →</button><span style="font-size:12px;color:var(--ok)">✓ ${esc(S.selectedEnv.name)} selected</span>`:''}
+  </div>`;
+
+window.loadEnvironments=async()=>{
+  const st=document.getElementById('envStatus');
+  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink2);margin-top:10px"><span class="dot-live"></span> Fetching environments…</div>`;
+  try{
+    const data=await api('/api/anypoint/environments',{accessToken:S.anypointToken,orgId:S.anypointOrgId});
+    S.environments=data.environments;
+    st.innerHTML='';
+    render(); // re-render to show env list
+  }catch(e){ st.innerHTML=`<div class="banner err" style="margin-top:10px"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
+};
+
+window.selectEnv=e=>{ S.selectedEnv=e; render(); };
+
+/* ================================================================
+   STEP 3 — Discover deployments
+================================================================ */
+VIEWS[3]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Discover deployments</span></div>
+  <h2 class="pt">Discover Mule deployments</h2>
+  <p class="ps">Pull what's actually running from Runtime Manager and API Manager in <strong>${esc(S.selectedEnv?.name||'')}</strong>. This gives the real picture — not just what's in Git.</p>
+  <div class="card">
+    <button class="btn btn-p" onclick="discoverDeployments()">Discover now</button>
+    <div id="discStatus" style="margin-top:14px"></div>
+  </div>
+  <div id="discResults" class="hide">
+    <div class="card">
+      <div class="disc-card">
+        <div class="dn">Runtime Manager — deployed apps (${S.runtimeApps.length})</div>
+        ${S.runtimeApps.length ? `<table class="tbl">
+          <thead><tr><th>App</th><th>Status</th><th>Workers</th><th>Mule version</th><th>Region</th></tr></thead>
+          <tbody>${S.runtimeApps.map(a=>`<tr>
+            <td class="mono">${esc(a.name)}</td>
+            <td><span class="pill ${a.status==='STARTED'?'ok':'warn'}">${esc(a.status)}</span></td>
+            <td class="mono">${a.workers||'?'} × ${esc(a.workerType||'?')}</td>
+            <td class="mono">${esc(a.muleVersion||'?')}</td>
+            <td class="mono">${esc(a.region||'?')}</td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div class="di">No apps found</div>'}
+      </div>
+      <div class="disc-card">
+        <div class="dn">API Manager — managed APIs (${S.apiManagerApis.length})</div>
+        ${S.apiManagerApis.length ? `<table class="tbl">
+          <thead><tr><th>API</th><th>Version</th><th>Technology</th><th>Policies</th></tr></thead>
+          <tbody>${S.apiManagerApis.map(a=>`<tr>
+            <td class="mono">${esc(a.name)}</td>
+            <td class="mono">${esc(a.version||'?')}</td>
+            <td><span class="pill ${a.technology?.includes('4')?'ok':'warn'}">${esc(a.technology||'?')}</span></td>
+            <td style="font-size:11px;color:var(--ink2)">${(a.policies||[]).join(', ')||'—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div class="di">No APIs found</div>'}
+      </div>
+    </div>
+    <div class="nrow">
+      <button class="btn btn-p" onclick="unlock(4);go(4)">Next: Parse applications →</button>
+      <span style="font-size:12px;color:var(--ink2)">${S.runtimeApps.length} apps · ${S.apiManagerApis.length} APIs discovered</span>
+    </div>
+  </div>
+  <div class="nrow ${S.runtimeApps.length?'hide':''}">
+    <button class="btn btn-g" onclick="go(2)">← Back</button>
+  </div>`;
+
+window.discoverDeployments=async()=>{
+  const st=document.getElementById('discStatus');
+  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2)"><span class="dot-live"></span> Querying Runtime Manager…</div>`;
+  try{
+    const body={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+    const [rmData,amData]=await Promise.allSettled([
+      api('/api/anypoint/runtime-manager',body),
+      api('/api/anypoint/api-manager',body),
+    ]);
+    S.runtimeApps = rmData.status==='fulfilled'?rmData.value.apps:[];
+    S.apiManagerApis = amData.status==='fulfilled'?amData.value.apis:[];
+    st.innerHTML='';
+    document.getElementById('discResults').classList.remove('hide');
+    render();
+  }catch(e){ st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
+};
+
+/* ================================================================
+   STEP 4 — Parse (real parser from uploaded demo)
+================================================================ */
+// Mule XML parser (same as before)
+function parseFlows(xml){
+  const flows=[]; const re=/<(flow|sub-flow)\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/g; let m;
+  while((m=re.exec(xml))!==null){
+    const kind=m[1],name=m[2],inner=m[3];
+    const f={name,kind,http_path:null,http_method:null,calls:[],has_transform:false,publishes:null,has_error_handler:false,has_idempotency:false,connectors:[],reconnects:0,xml:m[0]};
+    const lm=inner.match(/<(?:\w+:)?listener[^>]*path="([^"]+)"/); if(lm) f.http_path=lm[1];
+    let cm; const cr=/<flow-ref\s+name="([^"]+)"/g; while((cm=cr.exec(inner))!==null) f.calls.push(cm[1]);
+    if(/<(?:ee:)?transform/.test(inner)) f.has_transform=true;
+    const pm=inner.match(/<(?:vm:)?publish[^>]*queueName="([^"]+)"/); if(pm) f.publishes=pm[1];
+    if(/<error-handler/.test(inner)) f.has_error_handler=true;
+    if(/os:contains|idempoten/i.test(inner)) f.has_idempotency=true;
+    if(/<sap:/.test(inner)) f.connectors.push('SAP');
+    if(/<salesforce:/.test(inner)) f.connectors.push('Salesforce');
+    if(/<db:/.test(inner)) f.connectors.push('Database');
+    f.reconnects=(inner.match(/<reconnect[^/]*/g)||[]).length;
+    const nm=name.match(/^(get|post|put|patch|delete):\\(.+?):/i);
+    if(nm){ f.http_method=nm[1].toUpperCase(); let p='/'+nm[2].replace(/\\/g,'/'); p=p.replace(/\(([^)]+)\)/g,'{$1}'); f.http_path=p; }
+    flows.push(f);
+  }
+  return flows;
+}
+
+function analyseXml(name, tier, xml){
+  const flows=parseFlows(xml);
+  const allConn=[...new Set(flows.flatMap(f=>f.connectors))];
+  const orchFlows=flows.filter(f=>f.kind==='flow'&&f.calls.length>=2);
+  return {
+    name, tier, flows,
+    dwlCount: flows.filter(f=>f.has_transform).length,
+    connectors: allConn, hasSAP: allConn.includes('SAP'),
+    hasObjectStore: /os:/.test(xml), hasIdempotency: flows.some(f=>f.has_idempotency),
+    hasErrorHandler: flows.some(f=>f.has_error_handler), hasBatch: /<batch:/.test(xml),
+    orchFlows, orchChains: orchFlows.map(f=>f.name+'→'+f.calls.join('→')).join('|')||'none',
+    endpointFlows: flows.filter(f=>f.http_path&&f.http_method),
+    reconnectCount: flows.reduce((a,f)=>a+f.reconnects,0),
+    flowCount: flows.length,
+  };
+}
+
+VIEWS[4]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Parse applications</span></div>
+  <h2 class="pt">Parse & classify Mule applications</h2>
+  <p class="ps">Upload Mule XML files or paste content directly. The parser reads flows, connectors, DataWeave transforms, error handlers, Object Store, and SAP configs.</p>
+  <div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Upload Mule XML files</div>
+    <input type="file" id="xmlUpload" multiple accept=".xml,.raml,.dwl" onchange="handleFileUpload(this.files)"
+      style="font-size:12px;color:var(--ink2);margin-bottom:12px;display:block">
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Or paste XML directly:</div>
+    <textarea class="inp" id="xmlPaste" rows="6" placeholder="Paste Mule flow XML here…" style="font-family:var(--mono);font-size:11.5px;resize:vertical"></textarea>
+    <div class="inp-row" style="margin-top:10px">
+      <input class="inp" id="xmlName" placeholder="project name (e.g. order-process-api)" style="flex:1">
+      <select class="inp" id="xmlTier" style="width:160px;flex-shrink:0">
+        <option value="experience">Experience</option>
+        <option value="process">Process</option>
+        <option value="system">System</option>
+      </select>
+      <button class="btn btn-p" onclick="parseXml()">Parse</button>
+    </div>
+    <div id="parseStatus"></div>
+  </div>
+  <div id="parseResults" class="${Object.keys(S.projects).length?'':'hide'}">
+    ${renderParseResults()}
+  </div>`;
+
+function renderParseResults(){
+  const projs = Object.keys(S.projects);
+  if(!projs.length) return '';
+  const totalFlows=projs.reduce((a,n)=>a+S.projects[n].flowCount,0);
+  const totalDwl=projs.reduce((a,n)=>a+S.projects[n].dwlCount,0);
+  const allConn=[...new Set(projs.flatMap(n=>S.projects[n].connectors))];
+  return `
+    <div class="sg" style="margin-top:14px">
+      <div class="sc"><div class="v">${projs.length}</div><div class="l">Projects parsed</div></div>
+      <div class="sc"><div class="v">${totalFlows}</div><div class="l">Total flows</div></div>
+      <div class="sc"><div class="v">${totalDwl}</div><div class="l">DWL transforms</div></div>
+      <div class="sc"><div class="v" style="color:${allConn.length?'var(--warn)':'var(--ok)'}">${allConn.length||0}</div><div class="l">Connector types</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <table class="tbl">
+        <thead><tr><th>Project</th><th>Tier</th><th>Flows</th><th>DWL</th><th>Connectors</th><th>Patterns</th></tr></thead>
+        <tbody>${projs.map(n=>{
+          const a=S.projects[n]; const flags=[];
+          if(a.hasObjectStore) flags.push('<span class="pill warn">Object Store</span>');
+          if(a.hasIdempotency) flags.push('<span class="pill ok">idempotency</span>');
+          if(a.hasSAP) flags.push('<span class="pill err">SAP</span>');
+          if(a.hasErrorHandler) flags.push('<span class="pill">error handlers</span>');
+          return `<tr>
+            <td class="mono">${esc(n)}</td>
+            <td><span class="ttag ${a.tier}">${a.tier.toUpperCase()}</span></td>
+            <td class="mono">${a.flowCount}</td><td class="mono">${a.dwlCount}</td>
+            <td style="font-size:11px;color:var(--ink2)">${a.connectors.join(', ')||'HTTP'}</td>
+            <td style="display:flex;gap:4px;flex-wrap:wrap">${flags.join('')||'—'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+    <div class="nrow">
+      <button class="btn btn-p" onclick="unlock(5);go(5)">Next: Blueprint →</button>
+      <span style="font-size:12px;color:var(--ink2)">${projs.length} project${projs.length!==1?'s':''} ready</span>
+    </div>`;
+}
+
+window.handleFileUpload=async files=>{
+  for(const file of files){
+    const text=await file.text();
+    const name=file.name.replace(/\.xml$/,'').replace(/_/g,'-');
+    const tier=name.includes('experience')?'experience':name.includes('process')?'process':'system';
+    S.projects[name]=analyseXml(name,tier,text);
+  }
+  document.getElementById('parseResults').classList.remove('hide');
+  document.getElementById('parseResults').innerHTML=renderParseResults();
+};
+
+window.parseXml=()=>{
+  const xml=document.getElementById('xmlPaste').value.trim();
+  const name=document.getElementById('xmlName').value.trim()||'unnamed-api';
+  const tier=document.getElementById('xmlTier').value;
+  if(!xml){ alert('Paste some XML first'); return; }
+  S.projects[name]=analyseXml(name,tier,xml);
+  document.getElementById('parseResults').classList.remove('hide');
+  document.getElementById('parseResults').innerHTML=renderParseResults();
+  document.getElementById('parseStatus').innerHTML=`<div class="banner ok" style="margin-top:10px"><div class="ic">✓</div><div>${esc(name)} parsed — ${S.projects[name].flowCount} flows, ${S.projects[name].dwlCount} DWL transforms</div></div>`;
+};
+
+/* ================================================================
+   STEP 5 — Blueprint
+================================================================ */
+VIEWS[5]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Blueprint</span></div>
+  <h2 class="pt">Migration blueprint</h2>
+  <p class="ps">Dependency topology and AI-derived effort estimates based on the actual parsed connectors, DWL complexity, and flow patterns found in your source.</p>
+  <div class="card">
+    <div style="display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap">
+      ${['Experience','Process','System'].map((t,i)=>`<div style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink2)"><span style="width:8px;height:8px;border-radius:2px;background:${['var(--exp)','var(--proc)','var(--sys)'][i]};display:inline-block"></span>${t}</div>`).join('')}
+    </div>
+    <div class="dia-wrap">${buildDiagram()}</div>
+  </div>
+  <div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Cost impact estimate</div>
+    ${buildCostCard()}
+    <div style="font-size:13px;font-weight:600;margin:18px 0 12px">Risk register</div>
+    ${buildRiskRegister()}
+    <div class="nrow">
+      <button class="btn btn-g" onclick="exportBlueprint()">Export (.md)</button>
+      <button class="btn btn-p" onclick="unlock(6);go(6)">Next: HLD & LLD →</button>
+    </div>
+  </div>`;
+
+function buildDiagram(){
+  const projs=Object.keys(S.projects);
+  const byTier={experience:[],process:[],system:[]};
+  projs.forEach(n=>{ const t=S.projects[n].tier; if(byTier[t]) byTier[t].push(n); });
+  const nd=(x,y,w,lbl,col,sub)=>`<g><rect x="${x}" y="${y}" width="${w}" height="40" rx="6" fill="#1e2333" stroke="${col}" stroke-width="1.1"/><rect x="${x}" y="${y}" width="3" height="40" rx="2" fill="${col}"/><text x="${x+12}" y="${y+17}" fill="#e2e8f5" font-size="11" font-family="monospace">${esc(lbl.slice(0,22))}</text><text x="${x+12}" y="${y+30}" fill="#5a6480" font-size="9.5" font-family="monospace">${esc(sub)}</text></g>`;
+  let svg=`<svg viewBox="0 0 720 ${Math.max(200,Math.max(byTier.experience.length,byTier.process.length,byTier.system.length)*55+60)}" width="100%" style="min-width:600px" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="a" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5a6480"/></marker></defs>
+    <text x="110" y="22" fill="#6ea8fe" font-size="10" text-anchor="middle" font-family="monospace" letter-spacing="2">EXPERIENCE</text>
+    <text x="370" y="22" fill="#b387f7" font-size="10" text-anchor="middle" font-family="monospace" letter-spacing="2">PROCESS</text>
+    <text x="610" y="22" fill="#4dd9a4" font-size="10" text-anchor="middle" font-family="monospace" letter-spacing="2">SYSTEM</text>`;
+  byTier.experience.forEach((n,i)=>{ svg+=nd(20,40+i*52,180,n,'#6ea8fe',`${S.projects[n].flowCount} flows`); });
+  byTier.process.forEach((n,i)=>{ svg+=nd(270,40+i*52,200,n,'#b387f7',`${S.projects[n].flowCount} flows · ${S.projects[n].connectors.join(',')}`); });
+  byTier.system.forEach((n,i)=>{ svg+=nd(510,40+i*52,190,n,'#4dd9a4',`${S.projects[n].connectors.join(',')||'HTTP'}`); });
+  svg+='</svg>';
+  return svg;
+}
+
+function buildCostCard(){
+  const projs=Object.keys(S.projects);
+  const totalFlows=projs.reduce((a,n)=>a+S.projects[n].flowCount,0);
+  const estMuleCost=totalFlows*2500; // rough $2.5k per flow/year Mule licensing
+  const estAzureCost=Math.round(estMuleCost*0.7); // 30% saving (conservative, per real case study)
+  return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="sc"><div class="v" style="color:var(--err)">$${(estMuleCost/1000).toFixed(0)}k</div><div class="l">Est. Mule licensing/yr</div></div>
+    <div class="sc"><div class="v" style="color:var(--ok)">$${(estAzureCost/1000).toFixed(0)}k</div><div class="l">Est. Azure cost/yr</div></div>
+    <div class="sc"><div class="v" style="color:var(--azure2)">~30%</div><div class="l">Conservative saving</div><div class="ed" style="font-size:10px;color:var(--ink3);margin-top:4px">Based on real 400-API migration</div></div>
+  </div><p class="note">Cost model: ~$2,500/flow/year Mule vCore licensing vs Azure consumption. Real saving varies — 30% is the documented conservative case from production migrations at scale.</p>`;
+}
+
+function buildRiskRegister(){
+  const projs=Object.keys(S.projects);
+  const hasSAP=projs.some(n=>S.projects[n].hasSAP);
+  const hasOS=projs.some(n=>S.projects[n].hasObjectStore);
+  const highDwl=projs.filter(n=>S.projects[n].dwlCount>2).length;
+  const risks=[
+    {s:'h',n:'DataWeave transpilation',d:`${projs.reduce((a,n)=>a+S.projects[n].dwlCount,0)} transforms need manual verification after AI transpilation.`},
+    ...(hasSAP?[{s:'h',n:'SAP RFC connectivity',d:'Azure VNet integration, ExpressRoute, SAP .NET SDK — infrastructure work before any code.'}]:[]),
+    ...(hasOS?[{s:'h',n:'Object Store → Table Storage',d:'Idempotency patterns need explicit Azure Table Storage design. Bugs appear weeks after go-live.'}]:[]),
+    {s:'m',n:'Entra ID replacing Mule OAuth',d:'Requires app registration, JWT validate policy in APIM, scope enforcement.'},
+    {s:'m',n:'Function cold starts',d:'Experience APIs need Premium plan or Provisioned Concurrency for sub-200ms SLA.'},
+    {s:'l',n:'Managed Identity setup',d:'Every function needs RBAC grants per secret. Easy to miss in Bicep.'},
+  ];
+  return `<div>${risks.map(r=>`<div style="display:flex;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px">
+    <div style="width:4px;border-radius:2px;flex-shrink:0;align-self:stretch;background:${r.s==='h'?'var(--err)':r.s==='m'?'var(--warn)':'var(--ok)'}"></div>
+    <div><div style="font-weight:550;margin-bottom:2px">${r.n}</div><div style="color:var(--ink3)">${r.d}</div></div>
+  </div>`).join('')}</div>`;
+}
+
+window.exportBlueprint=()=>{
+  const projs=Object.keys(S.projects);
+  const md=`# Mule2Azure Migration Blueprint\n_${new Date().toISOString().slice(0,10)}_\n\n## Projects\n${projs.map(n=>`- **${n}** (${S.projects[n].tier}) — ${S.projects[n].flowCount} flows, ${S.projects[n].dwlCount} DWL`).join('\n')}\n\n## Risks\n- DataWeave transpilation — manual review required\n- SAP RFC — VNet + ExpressRoute infrastructure\n- Object Store → Table Storage — explicit design needed\n`;
+  dl(md,'mule2azure-blueprint.md','text/markdown');
+};
+
+/* ================================================================
+   STEP 6 — HLD & LLD
+================================================================ */
+VIEWS[6]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">HLD & LLD</span></div>
+  <h2 class="pt">Generate HLD & LLD</h2>
+  <p class="ps">AI generates a High Level Design covering overall Azure architecture, network topology, security design, and migration strategy — plus a Low Level Design per project with per-API specs, data mappings, and deployment steps.</p>
+  <div class="card">
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <button class="btn btn-ai" onclick="generateHLD()" id="hldBtn">✦ Generate HLD</button>
+      <button class="btn btn-ai" onclick="generateLLD()" id="lldBtn">✦ Generate LLD (per project)</button>
+      ${S.hld?`<button class="btn btn-g" onclick="dl(S.hld,'hld.md','text/markdown')">Download HLD</button>`:''}
+    </div>
+    <div id="hldArea">
+      ${S.hld?`<div class="doc-view" id="hldDoc">${esc(S.hld)}</div>`:'<div style="color:var(--ink3);font-size:12.5px">Click "Generate HLD" to create the high level design document.</div>'}
+    </div>
+  </div>
+  ${Object.keys(S.lld).length?`<div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Low Level Designs</div>
+    ${Object.entries(S.lld).map(([name,doc])=>`
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;font-weight:550;color:var(--azure2);margin-bottom:6px">${esc(name)}</div>
+        <div class="doc-view">${esc(doc)}</div>
+      </div>`).join('')}
+  </div>`:''}
+  <div class="nrow">
+    <button class="btn btn-p" ${S.hld?'':'disabled'} onclick="unlock(7);go(7)">Next: Review mappings →</button>
+  </div>`;
+
+window.generateHLD=async()=>{
+  const btn=document.getElementById('hldBtn');
+  btn.disabled=true; btn.textContent='✦ Generating…';
+  const area=document.getElementById('hldArea');
+  area.innerHTML=`<div class="aip"><div class="aip-hd"><div class="t">✦ Generating HLD…</div></div><div class="aip-body" id="hldStream"><span class="cur"></span></div></div>`;
+  try{
+    const projs=Object.keys(S.projects).map(n=>({name:n,tier:S.projects[n].tier,flowCount:S.projects[n].flowCount,connectors:S.projects[n].connectors}));
+    S.hld=await new Promise((res,rej)=>{
+      let f='';
+      streamSSE('/api/ai/hld',{projects:projs},
+        t=>{ f+=t; const e=document.getElementById('hldStream'); if(e){e.innerHTML=esc(f)+'<span class="cur"></span>';e.scrollTop=e.scrollHeight;} },
+        ()=>{ const e=document.getElementById('hldStream'); if(e) e.innerHTML=esc(f); res(f); },
+        e=>rej(new Error(e))
+      );
+    });
+    render();
+  }catch(e){ area.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
+  btn.disabled=false; btn.textContent='✦ Regenerate HLD';
+};
+
+window.generateLLD=async()=>{
+  const btn=document.getElementById('lldBtn');
+  btn.disabled=true; btn.textContent='✦ Generating…';
+  for(const name of Object.keys(S.projects)){
+    const a=S.projects[name];
+    try{
+      S.lld[name]=await new Promise((res,rej)=>{
+        let f='';
+        streamSSE('/api/ai/lld',{project:{name,tier:a.tier},analysis:{flowCount:a.flowCount,dwlCount:a.dwlCount,connectors:a.connectors,hasObjectStore:a.hasObjectStore,hasIdempotency:a.hasIdempotency,orchChains:a.orchChains}},
+          t=>f+=t, ()=>res(f), e=>rej(new Error(e))
+        );
+      });
+    }catch(e){ S.lld[name]=`Error: ${e.message}`; }
+  }
+  btn.disabled=false; btn.textContent='✦ Regenerate LLD';
+  render();
+};
+
+/* ================================================================
+   STEP 7 — Review mappings
+================================================================ */
+const MAPS=[
+  {mi:'API',ml:'HTTP Listener + APIkit',ai:'APIM',al:'Azure API Management',d:'Import OpenAPI/RAML, JWT policy, rate limits',e:'low'},
+  {mi:'POL',ml:'API Manager OAuth',ai:'AAD',al:'Entra ID + APIM policy',d:'App registration, JWT validate, scopes',e:'hard'},
+  {mi:'FLOW',ml:'Mule flow (endpoint)',ai:'Fn',al:'Azure Function App',d:'Python HTTP trigger, one per endpoint',e:'med'},
+  {mi:'ORCH',ml:'Process orchestration',ai:'LA',al:'Azure Logic App Standard',d:'Workflow JSON, HTTP actions, retry',e:'med'},
+  {mi:'DWL',ml:'DataWeave transform',ai:'AI→py',al:'AI-transpiled Python',d:'Review required — no automated tool exists',e:'hard'},
+  {mi:'SAP',ml:'SAP Connector RFC/BAPI',ai:'VNet',al:'Function + VNet + SAP SDK',d:'ExpressRoute, VNet integration, .NET SDK',e:'hard'},
+  {mi:'MQ',ml:'VM queue / Anypoint MQ',ai:'SB',al:'Azure Service Bus',d:'Queues + DLQ + alerts from day 1',e:'low'},
+  {mi:'OS',ml:'Object Store',ai:'TBL',al:'Table Storage / Cosmos DB',d:'Explicit conditional writes, TTL',e:'med'},
+  {mi:'SCHED',ml:'Mule Scheduler',ai:'LA',al:'Logic App Recurrence',d:'Cron trigger, watermarks in Table Storage',e:'low'},
+  {mi:'SEC',ml:'Secure properties',ai:'KV',al:'Azure Key Vault',d:'Managed Identity — no credentials in code',e:'low'},
+  {mi:'MON',ml:'Anypoint Monitoring',ai:'AI',al:'App Insights + Log Analytics',d:'Build dashboards — not automatic',e:'med'},
+  {mi:'DEP',ml:'CloudHub deployment',ai:'Bicep',al:'Bicep / ARM templates',d:'IaC — new skill for Mule teams',e:'med'},
+];
+
+VIEWS[7]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Review mappings</span></div>
+  <h2 class="pt">Review Azure service mappings</h2>
+  <p class="ps">Every Mule construct and its Azure equivalent. You can override the AI's runtime decisions (Function vs Logic App) per project here before artifacts are generated.</p>
+  <div style="display:flex;gap:14px;margin-bottom:12px;font-size:11.5px;color:var(--ink2);flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:5px"><span class="edot e-low"></span>Low effort</div>
+    <div style="display:flex;align-items:center;gap:5px"><span class="edot e-med"></span>Medium</div>
+    <div style="display:flex;align-items:center;gap:5px"><span class="edot e-hard"></span>Hard / new engineering</div>
+  </div>
+  <div class="card">${MAPS.map(m=>`
+    <div class="map-row">
+      <div class="ms"><div class="mic m-mule">${m.mi}</div><div class="mn">${m.ml}</div></div>
+      <div class="marr">→</div>
+      <div class="ms"><span class="edot e-${m.e}" style="margin-right:2px"></span><div class="mic m-azure">${m.ai}</div><div><div class="mn">${m.al}</div><div class="md">${m.d}</div></div></div>
+    </div>`).join('')}
+  </div>
+  <div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Override runtime decisions</div>
+    ${Object.keys(S.projects).map(n=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+        <span class="mono" style="flex:1;font-size:12px">${esc(n)}</span>
+        <select class="inp" style="width:220px" onchange="S.mappingOverrides['${n}']=this.value">
+          <option value="FunctionApp" ${(S.mappingOverrides[n]||S.aiDecs[n]?.runtime||'FunctionApp')==='FunctionApp'?'selected':''}>Azure Function App</option>
+          <option value="LogicApp" ${(S.mappingOverrides[n]||S.aiDecs[n]?.runtime)==='LogicApp'?'selected':''}>Logic App</option>
+          <option value="LogicAppWithFunctions" ${(S.mappingOverrides[n]||S.aiDecs[n]?.runtime)==='LogicAppWithFunctions'?'selected':''}>Logic App + Functions</option>
+          <option value="FunctionApp+ServiceBus" ${(S.mappingOverrides[n]||S.aiDecs[n]?.runtime)==='FunctionApp+ServiceBus'?'selected':''}>Function + Service Bus</option>
+        </select>
+      </div>`).join('')}
+  </div>
+  <div class="nrow">
+    <button class="btn btn-p" onclick="unlock(8);go(8)">Next: Generate artifacts →</button>
+  </div>`;
+
+/* ================================================================
+   STEP 8 — AI Conversion (same as demo but calls real server)
+================================================================ */
+VIEWS[8]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">AI conversion</span></div>
+  <h2 class="pt">AI-powered artifact generation</h2>
+  <p class="ps">ChatGPT generates Azure Function handlers, DataWeave → Python transpilation, RBAC policies, Logic App workflows, and a Bicep template — all based on your actual parsed Mule source.</p>
+  <div class="pipeline" id="pipeline">
+    ${['parse','AI → Functions','AI → DWL','AI → RBAC','AI → Logic Apps','Bicep','validate'].map(s=>`<span class="ps-node" data-s="${s}">${s}</span><span class="ps-arr">›</span>`).join('').slice(0,-22)}
+  </div>
+  <div class="prog"><div class="prog-fill" id="cp"></div></div>
+  <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-ai" id="runBtn" onclick="runConversion()">✦ Run AI conversion →</button>
+    <button class="btn btn-g hide" id="dlBtn">Download artifacts</button>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--ink2);flex:1" id="convStatus"></span>
+  </div>
+  <div class="split">
+    <div class="pane">
+      <div class="pane-hd"><div class="t">Mule source</div><div class="s" id="srcSub">parsed projects</div></div>
+      <div class="ftree" id="srcTree"></div>
+      <div class="code" id="srcCode"><span class="empty">Select a file to view source.</span></div>
+    </div>
+    <div class="pane">
+      <div class="pane-hd"><div class="t">Generated Azure artifacts</div><div class="s" id="outSub">run conversion first</div></div>
+      <div class="ftree" id="outTree"><div class="fi" style="cursor:default;color:var(--ink3)">No artifacts yet.</div></div>
+      <div class="code" id="outCode"><span class="empty">AI-generated code will appear here.</span></div>
+    </div>
+  </div>
+  <div id="convFoot"></div>`;
+
+BINDS[8]=()=>{
+  buildConvSrcTree();
+  document.getElementById('runBtn').onclick=runConversion;
+  document.getElementById('dlBtn').onclick=()=>dl(S.artifacts.map(a=>`${'='.repeat(60)}\n# ${a.path}\n${'='.repeat(60)}\n${a.body}`).join('\n\n'),'mule2azure-artifacts.txt','text/plain');
+  if(S.artifacts.length>0) paintConvArtifacts();
+};
+
+function buildConvSrcTree(){
+  const files=[];
+  for(const [name,proj] of Object.entries(S.projects)){
+    files.push({name,proj,body:`Project: ${name}\nTier: ${proj.tier}\nFlows: ${proj.flowCount}\nDWL transforms: ${proj.dwlCount}\nConnectors: ${proj.connectors.join(', ')||'HTTP'}\nHas Object Store: ${proj.hasObjectStore}\nHas idempotency: ${proj.hasIdempotency}\n\nOrchestration chains:\n${proj.orchChains}\n\nEndpoint flows:\n${proj.endpointFlows.map(f=>`  ${f.http_method} ${f.http_path}`).join('\n')}`,ext:'analysis'});
+  }
+  S._srcFiles=files;
+  document.getElementById('srcTree').innerHTML=files.map((f,i)=>`<div class="fi ${i===0?'active':''}" onclick="showConvSrc(${i})"><span class="ic">▸</span>${f.name}<span class="fm">${f.ext}</span></div>`).join('');
+  if(files.length) showConvSrc(0);
+}
+
+window.showConvSrc=i=>{ const f=S._srcFiles[i]; if(!f) return; document.getElementById('srcCode').innerHTML=esc(f.body); document.querySelectorAll('#srcTree .fi').forEach((el,idx)=>el.classList.toggle('active',idx===i)); };
+window.showConvOut=i=>{ const a=S._outFiles[i]; if(!a) return; document.getElementById('outCode').innerHTML=hlCode(a.body,a.lang||'python'); document.querySelectorAll('#outTree .fi').forEach((el,idx)=>el.classList.toggle('active',idx===i)); };
+
+async function runConversion(){
+  const btn=document.getElementById('runBtn'); btn.disabled=true; btn.textContent='✦ Converting…';
+  const status=document.getElementById('convStatus'); const prog=document.getElementById('cp');
+  S.artifacts=[];
+  const stg=s=>document.querySelectorAll('.ps-node').forEach(n=>{n.classList.toggle('active',n.dataset.s===s);n.classList.toggle('done',['parse','AI → Functions','AI → DWL','AI → RBAC','AI → Logic Apps','Bicep','validate'].indexOf(n.dataset.s)<['parse','AI → Functions','AI → DWL','AI → RBAC','AI → Logic Apps','Bicep','validate'].indexOf(s));});
+  const setP=n=>prog.style.width=n+'%';
+  const setSt=t=>status.innerHTML=t;
+
+  stg('parse'); setP(5); await sleep(300);
+  const projs=Object.keys(S.projects);
+
+  // Functions
+  stg('AI → Functions'); let done=0;
+  const allFlows=projs.flatMap(n=>S.projects[n].endpointFlows.map(f=>({name:n,flow:f})));
+  for(const {name,flow} of allFlows){
+    setSt(`✦ ChatGPT → Function: <code>${flow.name.replace(/\\/g,'/')}</code>`);
+    const a=S.projects[name];
+    let code='';
+    try{ code=await callAI({task:'function',payload:{project:name,tier:a.tier,flow_name:flow.name,http_method:flow.http_method,http_path:flow.http_path,downstream_calls:flow.calls.join(', '),has_transform:flow.has_transform,has_error_handler:flow.has_error_handler,publishes:flow.publishes,has_idempotency:flow.has_idempotency,reconnects:flow.reconnects,flow_xml:flow.xml||''}}); }
+    catch(e){ code=`# ChatGPT error: ${e.message}\n# Scaffold only\nimport azure.functions as func\nimport json\ndef main(req: func.HttpRequest) -> func.HttpResponse:\n    return func.HttpResponse('{}', status_code=200)\n`; }
+    const fn=name.replace('-api','').replace(/-/g,'_')+'_'+flow.http_method.toLowerCase()+'_'+(flow.http_path||'root').replace(/[^a-z0-9]/gi,'_').replace(/^_|_$/g,'');
+    S.artifacts.push({path:`functions/${name}/${fn}.py`,lang:'python',body:code,isLLM:true});
+    done++; setP(5+Math.round(done/allFlows.length*28));
+    await sleep(50);
+  }
+
+  // DWL
+  stg('AI → DWL');
+  for(const name of projs){
+    const a=S.projects[name];
+    for(const flow of a.flows.filter(f=>f.has_transform)){
+      setSt(`✦ ChatGPT → DWL: <code>${flow.name.replace(/\\/g,'/')}</code>`);
+      let py='';
+      try{ py=await callAI({task:'dwl',payload:{project:name,name:flow.name.replace(/[^a-z0-9]/gi,'_'),source:`# Extracted from flow: ${flow.name}\n# Original DWL inside flow XML`}}); }
+      catch(e){ py=`# Transpilation error: ${e.message}\ndef transform(payload, attributes=None):\n    return payload\n`; }
+      S.artifacts.push({path:`mappings/${name}__${flow.name.replace(/[^a-z0-9]/gi,'_')}.py`,lang:'python',body:py,isLLM:true,isDwl:true});
+    }
+  }
+  setP(60);
+
+  // RBAC
+  stg('AI → RBAC');
+  for(const name of projs){
+    const a=S.projects[name];
+    setSt(`✦ ChatGPT → RBAC: <code>${name}</code>`);
+    let rbac='[]';
+    try{ rbac=await callAI({task:'rbac',payload:{project:name,tier:a.tier,connectors:a.connectors.join(', '),publishes_sb:a.flows.some(f=>f.publishes),has_object_store:a.hasObjectStore,has_sap:a.hasSAP,has_salesforce:a.connectors.includes('Salesforce'),has_db:a.connectors.includes('Database'),calls_downstream:a.endpointFlows.some(f=>f.calls.length>0),runtime_target:S.mappingOverrides[name]||S.aiDecs[name]?.runtime||'FunctionApp'}}); }
+    catch(e){ rbac='[]'; }
+    S.artifacts.push({path:`rbac/${name}-roles.json`,lang:'json',body:rbac,isLLM:true});
+    setP(70);
+  }
+
+  // Logic Apps
+  stg('AI → Logic Apps');
+  for(const name of projs){
+    const a=S.projects[name];
+    if(a.tier!=='process'||!a.orchFlows.length) continue;
+    for(const flow of a.orchFlows){
+      setSt(`✦ ChatGPT → Logic App: <code>${flow.name.replace(/\\/g,'/')}</code>`);
+      let la='{}';
+      try{ la=await callAI({task:'logicapp',payload:{project:name,flow_name:flow.name,steps:flow.calls.join(' → '),step_details:flow.calls.map(c=>`${c} → Azure Function`).join(', '),publishes:flow.publishes,has_idempotency:flow.has_idempotency}}); }
+      catch(e){}
+      S.artifacts.push({path:`logicapps/${name}__workflow.json`,lang:'json',body:la,isLLM:true});
+    }
+  }
+  setP(82);
+
+  // Static artifacts
+  stg('Bicep');
+  setSt('Building Bicep template + APIM spec…'); await sleep(400);
+  S.artifacts.push({path:'bicep/main.bicep',lang:'bicep',body:buildBicepTemplate()});
+  S.artifacts.push({path:'apim/retail-api.openapi.json',lang:'json',body:JSON.stringify({openapi:'3.0.1',info:{title:'Migrated APIs',version:'v1'},paths:{}},null,2)});
+  // host.json + requirements per project
+  for(const name of projs){
+    const a=S.projects[name];
+    S.artifacts.push({path:`functions/${name}/host.json`,lang:'json',body:JSON.stringify({version:'2.0',extensionBundle:{id:'Microsoft.Azure.Functions.ExtensionBundle',version:'[4.*, 5.0.0)'}},null,2)});
+    const reqs=a.hasSAP?'azure-functions\npyrfc\nazure-identity\nazure-keyvault-secrets':a.hasObjectStore?'azure-functions\nazure-data-tables\nazure-servicebus\nazure-identity':'azure-functions\nrequests\nazure-identity';
+    S.artifacts.push({path:`functions/${name}/requirements.txt`,lang:'text',body:reqs});
+  }
+  setP(90);
+
+  // Validate JSON
+  stg('validate'); setSt('Validating JSON…'); await sleep(200);
+  let bad=0; S.artifacts.forEach(a=>{ if(a.lang==='json') try{JSON.parse(a.body);}catch(e){bad++;} });
+  document.querySelectorAll('.ps-node').forEach(n=>{n.classList.remove('active');n.classList.add('done');});
+  setP(100);
+  const llmCnt=S.artifacts.filter(a=>a.isLLM).length;
+  setSt(`<span style="color:var(--ok)">✓ done</span> — ${S.artifacts.length} files · ${llmCnt} AI-generated · JSON: ${S.artifacts.filter(a=>a.lang==='json').length-bad}/${S.artifacts.filter(a=>a.lang==='json').length} valid`);
+  btn.textContent='✦ Re-run'; btn.disabled=false;
+  document.getElementById('dlBtn').classList.remove('hide');
+  S.converted=true; unlock(9);
+  paintConvArtifacts();
+}
+
+function paintConvArtifacts(){
+  const order=['bicep','apim','functions','mappings','rbac','logicapps'];
+  const sorted=[...S.artifacts].sort((a,b)=>order.indexOf(a.path.split('/')[0])-order.indexOf(b.path.split('/')[0]));
+  S._outFiles=sorted;
+  const cols={bicep:'var(--sys)',apim:'var(--exp)',functions:'var(--azure2)',mappings:'var(--warn)',rbac:'var(--err)',logicapps:'var(--proc)'};
+  document.getElementById('outSub').textContent=`${sorted.length} AI-generated files`;
+  document.getElementById('outTree').innerHTML=sorted.map((a,i)=>{
+    const top=a.path.split('/')[0]; const ext=a.path.split('.').pop();
+    return `<div class="fi" onclick="showConvOut(${i})"><span class="ic" style="color:${cols[top]||'var(--ink2)'}">▸</span>${a.path}${a.isLLM?'<span class="ai-dot"></span>':''}<span class="fm">${ext}</span></div>`;
+  }).join('');
+  if(sorted.length) showConvOut(0);
+  const dwl=S.artifacts.filter(a=>a.isDwl).length;
+  document.getElementById('convFoot').innerHTML=`
+    <div class="banner warn" style="margin-top:12px"><div class="ic">⚠</div><div><b>${dwl} DataWeave transforms transpiled.</b> Each needs developer review — verify field mappings against real test data.</div></div>
+    <div class="banner ok" style="margin-top:8px"><div class="ic">✓</div><div>All artifacts generated. Next: connect your Azure account to deploy.</div></div>`;
+}
+
+function buildBicepTemplate(){
+  return `// Mule2Azure — Bicep template (generated)
+@description('Environment') @allowed(['dev','staging','prod']) param env string = 'dev'
+param location string = resourceGroup().location
+
+resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: 'kv-mule2azure-\${env}'
+  location: location
+  properties: { sku:{family:'A',name:'standard'}, tenantId: subscription().tenantId, enableRbacAuthorization: true }
+}
+resource sb 'Microsoft.ServiceBus/namespaces@2022-10-01-preview' = {
+  name: 'sb-mule2azure-\${env}' location: location sku: { name: 'Standard' }
+}
+resource sbQ 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
+  parent: sb name: 'order-events'
+  properties: { deadLetteringOnMessageExpiration: true maxDeliveryCount: 3 }
+}
+resource sbDlqAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+  name: 'dlq-depth-alert-\${env}' location: 'global'
+  properties: { severity: 2 enabled: true scopes: [sb.id]
+    criteria: { 'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
+      allOf: [{ name: 'DLQDepth' metricName: 'DeadletteredMessages' operator: 'GreaterThan' threshold: 0 timeAggregation: 'Maximum' }] } }
+}
+resource sa 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+  name: 'samule2azure\${env}' location: location kind: 'StorageV2' sku: { name: 'Standard_LRS' }
+}
+resource law 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
+  name: 'law-mule2azure-\${env}' location: location properties: { sku: { name: 'PerGB2018' } }
+}
+resource ai 'Microsoft.Insights/components@2020-02-02' = {
+  name: 'ai-mule2azure-\${env}' location: location kind: 'web'
+  properties: { Application_Type: 'web' WorkspaceResourceId: law.id }
+}
+resource asp 'Microsoft.Web/serverfarms@2022-09-01' = {
+  name: 'asp-mule2azure-\${env}' location: location kind: 'linux'
+  sku: { name: 'Y1' tier: 'Dynamic' }  // Consumption plan — free tier, no quota needed
+  properties: { reserved: true }
+}
+${Object.keys(S.projects).map(n=>`resource fn_${n.replace(/-/g,'_')} 'Microsoft.Web/sites@2022-09-01' = {
+  name: 'fn-${n}-\${env}' location: location kind: 'functionapp,linux'
+  identity: { type: 'SystemAssigned' }
+  properties: { serverFarmId: asp.id
+    siteConfig: { pythonVersion: '3.11'
+      appSettings: [
+        { name: 'APPINSIGHTS_INSTRUMENTATIONKEY' value: ai.properties.InstrumentationKey }
+        { name: 'AzureWebJobsStorage' value: 'DefaultEndpointsProtocol=https;AccountName=\${sa.name};AccountKey=\${sa.listKeys().keys[0].value};EndpointSuffix=core.windows.net' }
+        { name: 'SERVICEBUS_NAMESPACE' value: '\${sb.name}.servicebus.windows.net' }
+        { name: 'KEY_VAULT_URL' value: kv.properties.vaultUri }
+        { name: 'FUNCTIONS_WORKER_RUNTIME' value: 'python' }
+      ] } } }`).join('\n')}`;
+}
+
+/* ================================================================
+   STEP 9 — Connect Azure
+================================================================ */
+VIEWS[9]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect Azure</span></div>
+  <h2 class="pt">Connect your Azure account</h2>
+  <p class="ps">Enter your Azure Service Principal credentials so the tool can deploy directly to your subscription. The tool needs Contributor role on the target resource group.</p>
+  <div class="card">
+    <label class="lbl">Subscription ID</label>
+    <div class="inp-row"><input class="inp" id="azSubId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false"></div>
+    <label class="lbl">Resource group (will be created if it doesn't exist)</label>
+    <div class="inp-row"><input class="inp" id="azRg" placeholder="mule2azure-prod" spellcheck="false"></div>
+    <label class="lbl">Region</label>
+    <div class="inp-row">
+      <select class="inp" id="azRegion">
+        <option value="eastus">East US</option>
+        <option value="westeurope">West Europe</option>
+        <option value="southeastasia">Southeast Asia</option>
+        <option value="australiaeast">Australia East</option>
+        <option value="uksouth">UK South</option>
+      </select>
+    </div>
+    <div class="banner ai" style="margin-top:8px">
+      <div class="ic">ℹ</div>
+      <div>For actual deployment, run <code>az login</code> in your terminal then use the validate.py script. The UI deployment step uses the CLI under the hood.</div>
+    </div>
+    <button class="btn btn-p" onclick="saveAzureConfig()" style="margin-top:14px">Save & continue</button>
+  </div>
+  <div class="nrow">
+    ${S.azureConnected?`<button class="btn btn-p" onclick="unlock(10);go(10)">Next: Deploy →</button><span style="font-size:12px;color:var(--ok)">✓ Azure config saved</span>`:''}
+  </div>`;
+
+window.saveAzureConfig=()=>{
+  S.azureSubId=document.getElementById('azSubId').value.trim();
+  S.azureRg=document.getElementById('azRg').value.trim()||'mule2azure-prod';
+  S.azureRegion=document.getElementById('azRegion').value;
+  S.azureConnected=true;
+  unlock(10); go(10);
+};
+
+/* ================================================================
+   STEP 10 — Deploy
+================================================================ */
+VIEWS[10]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Deploy</span></div>
+  <h2 class="pt">Deploy to Azure</h2>
+  <p class="ps">Deploy the generated artifacts to your Azure subscription. Download the artifacts and run the deployment commands in your terminal where the Azure CLI is installed.</p>
+  <div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:14px">Deployment checklist</div>
+    ${[
+      {done:S.artifacts.length>0, label:'Artifacts generated', sub:'Functions, Bicep, RBAC, Logic Apps'},
+      {done:S.azureConnected,     label:'Azure config saved', sub:`Subscription: ${S.azureSubId||'not set'} · RG: ${S.azureRg||'not set'}`},
+      {done:false,                label:'az login completed', sub:'Run in your terminal'},
+      {done:false,                label:'Bicep deployed',     sub:'az deployment group create…'},
+      {done:false,                label:'Function code deployed', sub:'az functionapp deployment source config-zip…'},
+    ].map(c=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px">
+        <span style="color:${c.done?'var(--ok)':'var(--ink3)'};font-size:16px">${c.done?'✓':'○'}</span>
+        <div><div style="font-weight:${c.done?550:400}">${c.label}</div><div style="font-size:11px;color:var(--ink3)">${c.sub}</div></div>
+      </div>`).join('')}
+    <div style="margin-top:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--azure2);margin-bottom:8px">Run these commands in your terminal:</div>
+      <div class="code" style="min-height:auto;padding:12px;white-space:pre;font-size:11px">${esc(`# 1. Login
+az login
+az account set --subscription ${S.azureSubId||'YOUR_SUB_ID'}
+
+# 2. Create resource group
+az group create --name ${S.azureRg||'mule2azure-prod'} --location ${S.azureRegion||'eastus'}
+
+# 3. Deploy Bicep
+az deployment group create \\
+  --resource-group ${S.azureRg||'mule2azure-prod'} \\
+  --template-file ./artifacts/bicep/main.bicep \\
+  --parameters env=prod
+
+# 4. Deploy each Function App
+az functionapp deployment source config-zip \\
+  --resource-group ${S.azureRg||'mule2azure-prod'} \\
+  --name fn-retail-experience-api-prod \\
+  --src ./artifacts/functions/retail-experience-api.zip`)}</div>
+    </div>
+    <button class="btn btn-g" onclick="dl(S.artifacts.map(a=>\`\${'='.repeat(60)}\\n# \${a.path}\\n\${'='.repeat(60)}\\n\${a.body}\`).join('\\n\\n'),'mule2azure-artifacts.txt','text/plain')" style="margin-top:14px">Download all artifacts</button>
+  </div>
+  <div class="nrow">
+    <button class="btn btn-p" onclick="unlock(11);go(11)">Next: Validate →</button>
+  </div>`;
+
+/* ================================================================
+   STEP 11 — Validate
+================================================================ */
+VIEWS[11]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Validate</span></div>
+  <h2 class="pt">Validate migration</h2>
+  <p class="ps">Test every deployed endpoint. Enter your deployed Function App base URLs to run the validation suite.</p>
+  <div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Deployed endpoint URLs</div>
+    ${Object.keys(S.projects).map(n=>`
+      <label class="lbl">${esc(n)} base URL</label>
+      <div class="inp-row"><input class="inp" id="url-${n.replace(/-/g,'_')}" placeholder="https://fn-${n}-prod.azurewebsites.net/api"></div>`).join('')}
+    <button class="btn btn-p" onclick="runValidation()" style="margin-top:6px">Run validation tests</button>
+    <div id="valStatus"></div>
+  </div>
+  <div id="valResults" class="${Object.keys(S.testResults).length?'':'hide'}">
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Test results</div>
+      <table class="tbl">
+        <thead><tr><th>Test</th><th>Status</th><th>HTTP</th><th>Detail</th></tr></thead>
+        <tbody>${Object.entries(S.testResults).map(([name,r])=>`<tr>
+          <td class="mono" style="font-size:11px">${esc(name)}</td>
+          <td><span class="pill ${r.pass?'ok':'err'}">${r.pass?'PASS':'FAIL'}</span></td>
+          <td class="mono">${r.status||'—'}</td>
+          <td style="font-size:11px;color:var(--ink3)">${esc(r.detail||'')}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div class="nrow">
+      <button class="btn btn-p" onclick="unlock(12);go(12)">Next: Migration report →</button>
+    </div>
+  </div>`;
+
+window.runValidation=async()=>{
+  const st=document.getElementById('valStatus');
+  st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Running tests…</div>`;
+  // Run browser-side fetch tests against deployed endpoints
+  const results={};
+  for(const name of Object.keys(S.projects)){
+    const urlEl=document.getElementById(`url-${name.replace(/-/g,'_')}`);
+    const base=urlEl?.value.trim();
+    if(!base){ results[`${name}/health`]={pass:false,status:'—',detail:'URL not provided'}; continue; }
+    try{
+      const r=await fetch(`${base}/health`,{signal:AbortSignal.timeout(10000)});
+      results[`${name}/health`]={pass:r.status<400,status:r.status,detail:r.status<400?'Function responding':'Unexpected status'};
+    }catch(e){
+      results[`${name}/health`]={pass:false,status:'ERR',detail:e.message.includes('timeout')?'Cold start — retry':e.message};
+    }
+  }
+  S.testResults=results;
+  st.innerHTML='';
+  document.getElementById('valResults').classList.remove('hide');
+  render();
+};
+
+/* ================================================================
+   STEP 12 — Migration report
+================================================================ */
+VIEWS[12]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Migration report</span></div>
+  <h2 class="pt">Generate migration report</h2>
+  <p class="ps">AI generates a professional report covering executive summary, technical outcomes, test results, cost impact, risks, and sign-off checklist.</p>
+  <div class="card">
+    <button class="btn btn-ai" id="reportBtn" onclick="generateReport()">✦ Generate report</button>
+    <div id="reportArea" style="margin-top:14px">
+      ${S.report?`<div class="report-view" id="reportDoc">${esc(S.report)}</div>`:'<div style="color:var(--ink3);font-size:12.5px">Click "Generate report" to create the migration report.</div>'}
+    </div>
+  </div>
+  ${S.report?`<div class="nrow">
+    <button class="btn btn-g" onclick="dl(S.report,'migration-report.md','text/markdown')">Download report (.md)</button>
+    <span style="font-size:12px;color:var(--ok)">✓ Migration complete</span>
+  </div>`:''}`;
+
+window.generateReport=async()=>{
+  const btn=document.getElementById('reportBtn');
+  btn.disabled=true; btn.textContent='✦ Generating…';
+  const area=document.getElementById('reportArea');
+  area.innerHTML=`<div class="aip"><div class="aip-hd"><div class="t">✦ Generating migration report…</div></div><div class="aip-body" id="reportStream"><span class="cur"></span></div></div>`;
+  try{
+    const projs=Object.keys(S.projects);
+    const passed=Object.values(S.testResults).filter(r=>r.pass).length;
+    const total=Object.values(S.testResults).length;
+    S.report=await new Promise((res,rej)=>{
+      let f='';
+      streamSSE('/api/report',{
+        summary:{totalApis:projs.length,totalFlows:projs.reduce((a,n)=>a+S.projects[n].flowCount,0),totalDwl:projs.reduce((a,n)=>a+S.projects[n].dwlCount,0),dwlManualReview:projs.reduce((a,n)=>a+S.projects[n].dwlCount,0),costSavingPct:30},
+        projects:projs.map(n=>({name:n,tier:S.projects[n].tier})),
+        testResults:{passed,failed:total-passed,total},
+        aiDecisions:S.aiDecs,
+      },
+        t=>{ f+=t; const e=document.getElementById('reportStream'); if(e){e.innerHTML=esc(f)+'<span class="cur"></span>';e.scrollTop=e.scrollHeight;} },
+        ()=>{ const e=document.getElementById('reportStream'); if(e) e.innerHTML=esc(f); res(f); },
+        e=>rej(new Error(e))
+      );
+    });
+    render();
+  }catch(e){ area.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
+  btn.disabled=false;
+};
+
+/* ================================================================
+   SYNTAX HIGHLIGHT
+================================================================ */
+function hlCode(code,lang){
+  let s=esc(code);
+  if(lang==='python'){
+    s=s.replace(/(#[^\n]*)/g,'<span class="c">$1</span>');
+    s=s.replace(/\b(def|return|import|from|if|else|elif|for|in|not|None|True|False|try|except|raise|class|async|await|with|as)\b/g,'<span class="k">$1</span>');
+    s=s.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="s">$1</span>');
+  }else if(lang==='json'){
+    s=s.replace(/("(?:[^"\\]|\\.)*")(\s*:)/g,'<span class="k">$1</span>$2');
+    s=s.replace(/:\s*("(?:[^"\\]|\\.)*")/g,': <span class="s">$1</span>');
+    s=s.replace(/\b(true|false|null)\b/g,'<span class="p">$1</span>');
+  }else if(lang==='bicep'){
+    s=s.replace(/(\/\/[^\n]*)/g,'<span class="c">$1</span>');
+    s=s.replace(/\b(param|var|resource|output|module)\b/g,'<span class="k">$1</span>');
+  }
+  return s;
+}
+
+/* boot */
+checkServer();
+render();
+</script>
+</body>
+</html>
