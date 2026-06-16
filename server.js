@@ -31,7 +31,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.options('*', cors()); // handle preflight for all routes
+app.options('/{*path}', cors()); // handle preflight for all routes (Express 5 compatible)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
 
