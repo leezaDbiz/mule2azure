@@ -639,13 +639,14 @@ VIEWS[3]=()=>`
       <div class="disc-card">
         <div class="dn">Runtime Manager — deployed apps (${S.runtimeApps.length})</div>
         ${S.runtimeApps.length ? `<table class="tbl">
-          <thead><tr><th>App</th><th>Status</th><th>Workers</th><th>Mule version</th><th>Region</th></tr></thead>
+          <thead><tr><th>App</th><th>Type</th><th>Status</th><th>Server / Region</th><th>Workers</th><th>Mule version</th></tr></thead>
           <tbody>${S.runtimeApps.map(a=>`<tr>
             <td class="mono">${esc(a.name)}</td>
-            <td><span class="pill ${a.status==='STARTED'?'ok':'warn'}">${esc(a.status)}</span></td>
-            <td class="mono">${a.workers||'?'} × ${esc(a.workerType||'?')}</td>
-            <td class="mono">${esc(a.muleVersion||'?')}</td>
-            <td class="mono">${esc(a.region||'?')}</td>
+            <td><span class="pill ok" style="font-size:10px">${esc(a.type||'?')}</span></td>
+            <td><span class="pill ${a.status==='STARTED'||a.status==='RUNNING'?'ok':'warn'}">${esc(a.status||'?')}</span></td>
+            <td class="mono" style="font-size:11px">${esc(a.server||a.region||'—')}</td>
+            <td class="mono">${a.workers!=null?a.workers+(a.workerType?' × '+a.workerType:''):'—'}</td>
+            <td class="mono">${esc(a.muleVersion||'—')}</td>
           </tr>`).join('')}</tbody>
         </table>` : '<div class="di">No apps found</div>'}
       </div>

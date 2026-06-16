@@ -286,28 +286,72 @@ app.post('/api/anypoint/runtime-manager', async (req, res) => {
   if (!accessToken || !orgId || !envId) return res.status(400).json({ error: 'accessToken, orgId, envId required' });
 
   try {
-    const headers = {
+    const hdrs = {
       Authorization: `Bearer ${accessToken}`,
       'X-ANYPNT-ENV-ID': envId,
       'X-ANYPNT-ORG-ID': orgId,
     };
 
-    // Runtime Manager: deployed apps
-    const appsR = await axios.get(
-      `https://anypoint.mulesoft.com/cloudhub/api/v2/applications`,
-      { headers }
-    );
+    // Query all three deployment types in parallel; ignore whichever returns 403/404
+    const [ch1Res, ch2Res, hybridRes] = await Promise.allSettled([
+      axios.get('https://anypoint.mulesoft.com/cloudhub/api/v2/applications', { headers: hdrs }),
+      axios.get(`https://anypoint.mulesoft.com/amc/application-manager/api/v2/organizations/${orgId}/environments/${envId}/deployments`, { headers: hdrs }),
+      axios.get('https://anypoint.mulesoft.com/hybrid/api/v2/applications', { headers: hdrs }),
+    ]);
 
-    const apps = appsR.data.map(app => ({
-      name:          app.domain,
-      status:        app.status,
-      workers:       app.workers?.amount,
-      workerType:    app.workers?.type?.name,
-      muleVersion:   app.muleVersion?.version,
-      region:        app.region,
-      lastUpdated:   app.lastUpdateTime,
-      properties:    Object.keys(app.properties || {}).length,
-    }));
+    const apps = [];
+
+    // CloudHub 1.0
+    if (ch1Res.status === 'fulfilled') {
+      for (const a of (ch1Res.value.data || [])) {
+        apps.push({
+          name:        a.domain,
+          status:      a.status,
+          type:        'CloudHub 1.0',
+          workers:     a.workers?.amount,
+          workerType:  a.workers?.type?.name,
+          muleVersion: a.muleVersion?.version,
+          region:      a.region,
+          server:      null,
+          lastUpdated: a.lastUpdateTime,
+        });
+      }
+    }
+
+    // CloudHub 2.0 / Runtime Fabric
+    if (ch2Res.status === 'fulfilled') {
+      for (const a of (ch2Res.value.data?.items || [])) {
+        apps.push({
+          name:        a.name,
+          status:      a.status,
+          type:        'CloudHub 2.0',
+          workers:     a.target?.deploymentSettings?.replicas,
+          workerType:  null,
+          muleVersion: a.application?.ref?.version,
+          region:      a.target?.region,
+          server:      null,
+          lastUpdated: a.lastModifiedDate,
+        });
+      }
+    }
+
+    // Hybrid (on-premises servers / server groups)
+    if (hybridRes.status === 'fulfilled') {
+      const list = hybridRes.value.data?.data || hybridRes.value.data || [];
+      for (const a of list) {
+        apps.push({
+          name:        a.name,
+          status:      a.lastReportedStatus || a.desiredStatus,
+          type:        'Hybrid',
+          workers:     null,
+          workerType:  null,
+          muleVersion: a.artifact?.name,
+          region:      null,
+          server:      a.target?.name || a.serverName,
+          lastUpdated: a.lastUpdateTime,
+        });
+      }
+    }
 
     res.json({ apps, total: apps.length });
   } catch (e) {
