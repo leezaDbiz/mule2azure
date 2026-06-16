@@ -497,6 +497,37 @@ function updateNext0(){
 /* ================================================================
    STEP 1 — Anypoint auth
 ================================================================ */
+VIEWS[0]=()=>`
+  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect GitHub</span></div>
+  <h2 class="pt">Connect your Git provider</h2>
+  <p class="ps">Enter your GitHub org or username and a personal access token. The token needs <code>repo</code> scope for private repositories. Public repos work without a token.</p>
+  <div class="card">
+    <label class="lbl">GitHub org or username</label>
+    <div class="inp-row">
+      <input class="inp" id="ghOrg" placeholder="acme-corp" value="${esc(S.githubOrg)}" spellcheck="false">
+    </div>
+    <label class="lbl">Personal access token <span style="color:var(--ink3)">(optional for public repos)</span></label>
+    <div class="inp-row">
+      <input class="inp" id="ghToken" type="password" placeholder="ghp_..." value="${esc(S.githubToken)}" spellcheck="false">
+      <button class="btn btn-p" id="ghConnect" onclick="connectGitHub()">Connect</button>
+    </div>
+    <div id="ghStatus"></div>
+  </div>
+  <div id="repoSection" class="hide">
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600">Repositories</div>
+        <input class="inp" id="repoFilter" placeholder="filter repos…" style="width:200px" oninput="filterRepos(this.value)">
+      </div>
+      <div id="repoList"></div>
+    </div>
+    <div class="nrow" id="nrow0"></div>
+  </div>`;
+
+BINDS[0]=()=>{
+  if(S.repos.length > 0){ document.getElementById('repoSection').classList.remove('hide'); paintRepos(S.repos); updateNext0(); }
+};
+
 VIEWS[1]=()=>`
   <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect Anypoint</span></div>
   <h2 class="pt">Connect Anypoint Platform</h2>
