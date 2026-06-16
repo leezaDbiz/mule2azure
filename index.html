@@ -251,7 +251,7 @@ const S = {
   _srcFiles: [], _outFiles: [],
 };
 
-const SERVER = 'http://localhost:7433';
+const SERVER = window.location.hostname === 'localhost' ? 'http://localhost:7433' : '';
 
 const STEPS = [
   // Source & Discovery
@@ -309,9 +309,21 @@ function render(){
 
 /* ── Server communication ───────────────────────────────────────── */
 async function api(path, body){
-  const r = await fetch(`${SERVER}${path}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-  if(!r.ok){ const e=await r.json(); throw new Error(e.error||r.statusText); }
-  return r.json();
+  const url = `${SERVER}${path}`;
+  let r;
+  try{
+    r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch(e) {
+    throw new Error(`Network error calling ${path}: ${e.message}. Is the server running?`);
+  }
+  let data;
+  try { data = await r.json(); } catch(e) { throw new Error(`Server returned non-JSON (status ${r.status})`); }
+  if(!r.ok) throw new Error(data.error || data.message || `HTTP ${r.status}`);
+  return data;
 }
 
 async function streamSSE(path, body, onChunk, onDone, onError){
@@ -362,47 +374,23 @@ function fmtStream(t){
 }
 
 async function checkServer(){
+  const url = `${SERVER}/health`;
   try{
-    const r=await fetch(`${SERVER}/health`,{signal:AbortSignal.timeout(2000)});
-    if(r.ok){ const d=await r.json(); document.getElementById('srv-status').innerHTML=`<span style="color:var(--ok)">● ${d.model}</span>`; return true; }
-  }catch(e){}
-  document.getElementById('srv-status').innerHTML='<span style="color:var(--err)">✗ offline — node server.js</span>';
+    const r=await fetch(url,{signal:AbortSignal.timeout(4000)});
+    if(r.ok){
+      const d=await r.json();
+      document.getElementById('srv-status').innerHTML=`<span style="color:var(--ok)">● ${d.model||'connected'}</span>`;
+      return true;
+    }
+  }catch(e){ console.warn('Health check failed:', url, e.message); }
+  const isRender=window.location.hostname.includes('onrender.com');
+  document.getElementById('srv-status').innerHTML=isRender
+    ? '<span style="color:var(--warn)">⚡ waking up…</span>'
+    : '<span style="color:var(--err)">✗ offline — run: node server.js</span>';
+  // retry after 3s on Render (cold start)
+  if(isRender) setTimeout(checkServer, 3000);
   return false;
 }
-
-/* ================================================================
-   STEP 0 — GitHub
-================================================================ */
-VIEWS[0]=()=>`
-  <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect GitHub</span></div>
-  <h2 class="pt">Connect your Git provider</h2>
-  <p class="ps">Enter your GitHub org or username and a personal access token. The token needs <code>repo</code> scope for private repositories. Public repos work without a token.</p>
-  <div class="card">
-    <label class="lbl">GitHub org or username</label>
-    <div class="inp-row">
-      <input class="inp" id="ghOrg" placeholder="acme-corp" value="${esc(S.githubOrg)}" spellcheck="false">
-    </div>
-    <label class="lbl">Personal access token <span style="color:var(--ink3)">(optional for public repos)</span></label>
-    <div class="inp-row">
-      <input class="inp" id="ghToken" type="password" placeholder="ghp_..." value="${esc(S.githubToken)}" spellcheck="false">
-      <button class="btn btn-p" id="ghConnect" onclick="connectGitHub()">Connect</button>
-    </div>
-    <div id="ghStatus"></div>
-  </div>
-  <div id="repoSection" class="hide">
-    <div class="card" style="margin-top:14px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <div style="font-size:13px;font-weight:600">Repositories</div>
-        <input class="inp" id="repoFilter" placeholder="filter repos…" style="width:200px" oninput="filterRepos(this.value)">
-      </div>
-      <div id="repoList"></div>
-    </div>
-    <div class="nrow" id="nrow0"></div>
-  </div>`;
-
-BINDS[0]=()=>{
-  if(S.repos.length > 0){ document.getElementById('repoSection').classList.remove('hide'); paintRepos(S.repos); updateNext0(); }
-};
 
 window.connectGitHub = async()=>{
   const org = document.getElementById('ghOrg').value.trim();
@@ -413,19 +401,74 @@ window.connectGitHub = async()=>{
   btn.disabled=true; btn.textContent='Connecting…';
   const st = document.getElementById('ghStatus');
   st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Fetching repositories from GitHub…</div>`;
+  
+  // First check server is reachable
+  let serverOk = false;
+  try{ const h=await fetch(`${SERVER}/health`,{signal:AbortSignal.timeout(3000)}); serverOk=h.ok; }catch(e){}
+  
+  if(!serverOk){
+    // Server not reachable — offer mock mode
+    st.innerHTML=`<div class="banner warn" style="margin-top:12px">
+      <div class="ic">⚠</div>
+      <div>
+        <b>Cannot reach server</b><br>
+        <span style="font-size:11px;color:var(--ink3)">Make sure the server is running: <code>node server.js   (or check Render logs if deployed)</code></span><br>
+        <button class="btn btn-g" onclick="loadMockRepos('${org}')" style="margin-top:8px;font-size:11px;padding:5px 12px">
+          Use demo repos instead (no server needed)
+        </button>
+      </div>
+    </div>`;
+    btn.textContent='Retry'; btn.disabled=false;
+    return;
+  }
+
   try{
     const data = await api('/api/github/repos', { org, token });
     S.repos = data.repos;
-    st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Connected · ${data.total} repositories found</div>`;
+    st.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Connected to GitHub · ${data.total} repositories found</div>`;
     document.getElementById('repoSection').classList.remove('hide');
     paintRepos(S.repos);
     updateNext0();
     btn.textContent='Reconnect';
   }catch(e){
-    st.innerHTML=`<div class="banner err" style="margin-top:12px"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`;
-    btn.textContent='Connect';
+    const msg = e.message || 'Unknown error';
+    const isNotFound = msg.includes('Not Found') || msg.includes('404');
+    const isAuth = msg.includes('401') || msg.includes('Bad credentials');
+    st.innerHTML=`<div class="banner err" style="margin-top:12px">
+      <div class="ic">✗</div>
+      <div>
+        <b>${isNotFound ? 'Org not found' : isAuth ? 'Authentication failed' : 'GitHub API error'}</b><br>
+        <span style="font-size:11px">${esc(msg)}</span><br>
+        <span style="font-size:11px;color:var(--ink3)">${
+          isNotFound ? 'Check the org/username spelling. Private orgs need a token with read:org scope.' :
+          isAuth ? 'Generate a token at github.com/settings/tokens with "repo" scope.' :
+          'Check your token permissions and org name.'
+        }</span><br>
+        <button class="btn btn-g" onclick="loadMockRepos('${org}')" style="margin-top:8px;font-size:11px;padding:5px 12px">
+          Load demo repos instead
+        </button>
+      </div>
+    </div>`;
+    btn.textContent='Retry';
   }
   btn.disabled=false;
+};
+
+window.loadMockRepos = (org) => {
+  S.repos = [
+    {name:'retail-experience-api',  fullName:`${org}/retail-experience-api`,  description:'Mobile & web BFF — cart, orders, profile',   private:true,  language:'XML', likelyMule:true, defaultBranch:'main'},
+    {name:'order-process-api',      fullName:`${org}/order-process-api`,      description:'Checkout orchestration across SAP + Salesforce',private:true,  language:'XML', likelyMule:true, defaultBranch:'main'},
+    {name:'inventory-process-api',  fullName:`${org}/inventory-process-api`,  description:'Stock reservation and availability',            private:true,  language:'XML', likelyMule:true, defaultBranch:'main'},
+    {name:'sap-system-api',         fullName:`${org}/sap-system-api`,         description:'System API wrapping SAP ECC via RFC/BAPI',      private:true,  language:'XML', likelyMule:true, defaultBranch:'main'},
+    {name:'salesforce-system-api',  fullName:`${org}/salesforce-system-api`,  description:'System API over Salesforce CRM',               private:true,  language:'XML', likelyMule:true, defaultBranch:'main'},
+    {name:'postgres-system-api',    fullName:`${org}/postgres-system-api`,    description:'System API over customer PostgreSQL DB',       private:true,  language:'XML', likelyMule:true, defaultBranch:'main'},
+    {name:'shared-common-lib',      fullName:`${org}/shared-common-lib`,      description:'Shared DataWeave libraries and error handlers', private:true,  language:'XML', likelyMule:false, defaultBranch:'main'},
+    {name:'customer-portal-ui',     fullName:`${org}/customer-portal-ui`,     description:'React customer portal',                        private:false, language:'JavaScript', likelyMule:false, defaultBranch:'main'},
+  ];
+  document.getElementById('ghStatus').innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2);margin-top:12px"><span class="dot-live"></span> Demo mode · ${S.repos.length} repositories loaded</div>`;
+  document.getElementById('repoSection').classList.remove('hide');
+  paintRepos(S.repos);
+  updateNext0();
 };
 
 function paintRepos(repos){

@@ -24,9 +24,14 @@ const fs      = require('fs');
 const app    = express();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 const MODEL  = 'gpt-4o';
-const PORT   = 7433;
+const PORT   = process.env.PORT || 7433;  // Render sets PORT automatically
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors()); // handle preflight for all routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static('.'));
 
@@ -43,6 +48,23 @@ app.get('/health', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// Debug endpoint — test in browser: /api/debug
+// ─────────────────────────────────────────────
+app.get('/api/debug', (req, res) => {
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    node: process.version,
+    env: {
+      hasOpenAiKey: !!process.env.OPENAI_API_KEY,
+      port: process.env.PORT || 7433,
+      nodeEnv: process.env.NODE_ENV || 'development',
+    },
+    headers: req.headers,
+  });
+});
+
+// ─────────────────────────────────────────────
 // STEP 1 — GitHub: list repos in an org/user
 // ─────────────────────────────────────────────
 app.post('/api/github/repos', async (req, res) => {
@@ -50,7 +72,12 @@ app.post('/api/github/repos', async (req, res) => {
   if (!org) return res.status(400).json({ error: 'org is required' });
 
   try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Mule2Azure-Migration-Tool',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
 
     // Try org endpoint first, fall back to user endpoint
     let repos = [];
@@ -84,9 +111,18 @@ app.post('/api/github/repos', async (req, res) => {
 
     res.json({ repos: muleRepos, total: muleRepos.length });
   } catch (e) {
-    res.status(502).json({
-      error: e.response?.data?.message || e.message,
-      hint: 'Check org name and token permissions (repo scope needed for private repos)',
+    const status = e.response?.status || 502;
+    const message = e.response?.data?.message || e.message;
+    console.error(`GitHub API error [${status}]:`, message);
+    res.status(status === 404 ? 404 : 502).json({
+      error: message,
+      status,
+      hint: status === 404
+        ? 'Org/user not found — check spelling. If it is a private org, a token with "read:org" scope is required.'
+        : status === 401
+        ? 'Token invalid or expired — generate a new one at github.com/settings/tokens'
+        : 'Check org name and token permissions (repo scope needed for private repos)',
+      docs: 'https://docs.github.com/en/rest/repos/repos#list-organization-repositories',
     });
   }
 });
@@ -99,7 +135,12 @@ app.post('/api/github/tree', async (req, res) => {
   if (!fullName) return res.status(400).json({ error: 'fullName is required' });
 
   try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Mule2Azure-Migration-Tool',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
     const branchName = branch || 'main';
 
     const r = await axios.get(
@@ -135,7 +176,12 @@ app.post('/api/github/file', async (req, res) => {
   if (!fullName || !filePath) return res.status(400).json({ error: 'fullName and filePath required' });
 
   try {
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Mule2Azure-Migration-Tool',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
     const r = await axios.get(
       `https://api.github.com/repos/${fullName}/contents/${filePath}`,
       { headers }
