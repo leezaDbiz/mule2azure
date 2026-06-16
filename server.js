@@ -443,7 +443,7 @@ Be specific and technical. Reference actual Azure service names and SKUs.`;
 
   try {
     const stream = await openai.chat.completions.create({
-      model: MODEL, max_tokens: 2048, stream: true,
+      model: MODEL, max_completion_tokens: 2048, stream: true,
       messages: [
         { role: 'system', content: 'You are a senior Azure integration architect. Write technical design documents.' },
         { role: 'user', content: prompt },
@@ -492,7 +492,7 @@ Be specific about variable names, secret names, and Azure resource names.`;
 
   try {
     const stream = await openai.chat.completions.create({
-      model: MODEL, max_tokens: 2048, stream: true,
+      model: MODEL, max_completion_tokens: 2048, stream: true,
       messages: [
         { role: 'system', content: 'You are a senior Azure integration architect. Write detailed technical specifications.' },
         { role: 'user', content: prompt },
@@ -530,7 +530,7 @@ app.post('/api/ai/convert', async (req, res) => {
 
   try {
     const stream = await openai.chat.completions.create({
-      model: MODEL, max_tokens: 2048, stream: true,
+      model: MODEL, max_completion_tokens: 2048, stream: true,
       messages: [
         { role: 'system', content: system },
         { role: 'user',   content: prompt },
@@ -587,7 +587,7 @@ Write professionally. Be specific about numbers. Flag DataWeave transforms that 
 
   try {
     const stream = await openai.chat.completions.create({
-      model: MODEL, max_tokens: 2048, stream: true,
+      model: MODEL, max_completion_tokens: 2048, stream: true,
       messages: [
         { role: 'system', content: 'You are a technical delivery manager writing a professional migration report.' },
         { role: 'user',   content: prompt },
