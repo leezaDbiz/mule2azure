@@ -378,30 +378,52 @@ app.post('/api/anypoint/api-manager', async (req, res) => {
       { headers }
     );
 
-    const rawApis = apisR.data.assets || [];
+    const rawAssets = apisR.data.assets || apisR.data || [];
+    // Anypoint v1 may return assets with nested instances arrays
+    const rawApis = rawAssets.flatMap(asset => {
+      if (Array.isArray(asset.instances) && asset.instances.length > 0) {
+        return asset.instances.map(inst => ({
+          assetId:            asset.assetId,
+          exchangeAssetName:  asset.exchangeAssetName,
+          ...inst,
+        }));
+      }
+      return [asset];
+    });
 
-    // Fetch policies for every API in parallel
+    // Log shape of first item to help debug field names in server logs
+    if (rawApis.length > 0) {
+      console.log('[api-manager] first API keys:', Object.keys(rawApis[0]).join(', '));
+      console.log('[api-manager] sample:', JSON.stringify(rawApis[0]).slice(0, 400));
+    }
+
     const results = await Promise.allSettled(rawApis.map(async api => {
       let policies = [];
       try {
         const polR = await axios.get(
-          `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${api.id}/policies`,
+          `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${api.id}/policies?fullInfo=true`,
           { headers }
         );
-        policies = (polR.data || []).map(p =>
+        const raw = Array.isArray(polR.data) ? polR.data : (polR.data?.policies || polR.data?.items || []);
+        policies = raw.map(p =>
           p.template?.assetId || p.policyTemplateId || String(p.id)
         ).filter(Boolean);
       } catch (_) { /* no policies or no permission — leave empty */ }
 
+      const tech = api.technology
+        || (api.endpoint?.muleVersion4OrAbove === true  ? 'mule4' : null)
+        || (api.endpoint?.muleVersion4OrAbove === false ? 'mule3' : null)
+        || (api.endpoint?.type ? api.endpoint.type : null);
+
       return {
         id:            api.id,
         name:          api.assetId || api.exchangeAssetName || api.name,
-        version:       api.productVersion || api.assetVersion,
-        status:        api.status,
-        technology:    api.technology || (api.endpoint?.muleVersion4OrAbove ? 'mule4' : null),
-        endpoint:      api.endpoint?.uri,
+        version:       api.productVersion || api.assetVersion || api.version,
+        status:        api.status || (api.active === true ? 'active' : null) || (api.deprecated ? 'deprecated' : 'active'),
+        technology:    tech,
+        endpoint:      api.endpoint?.uri || api.endpoint?.proxyUri,
         policies,
-        autodiscovery: api.autodiscoveryInstanceName,
+        autodiscovery: api.autodiscoveryInstanceName || api.autodiscovery,
       };
     }));
 
@@ -489,18 +511,23 @@ app.post('/api/anypoint/policies', async (req, res) => {
   if (!accessToken || !orgId || !envId || !apiId) return res.status(400).json({ error: 'accessToken, orgId, envId, apiId required' });
   try {
     const r = await axios.get(
-      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/policies`,
+      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/policies?fullInfo=true`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    const policies = (r.data || []).map(p => ({
+    // Anypoint may return array directly, or { policies: [...] }, or { items: [...] }
+    const raw = Array.isArray(r.data) ? r.data : (r.data?.policies || r.data?.items || []);
+    const policies = raw.map(p => ({
       policyId:          p.id,
-      name:              p.template?.name || p.template?.assetId || p.policyTemplateId,
-      configurationData: p.configuration || p.configurationData || {},
+      name:              p.template?.name || p.template?.assetId || p.policyTemplateId || String(p.id),
+      configuration:     p.configuration || p.configurationData || {},
       order:             p.order,
     }));
     res.json({ policies });
   } catch (e) {
-    res.status(502).json({ error: e.response?.data?.message || e.message });
+    // Return empty instead of 502 — missing policies shouldn't block the UI
+    const msg = e.response?.data?.message || e.response?.data || e.message;
+    console.warn(`[policies] apiId=${apiId} failed: ${msg}`);
+    res.json({ policies: [], warning: String(msg) });
   }
 });
 
@@ -524,7 +551,9 @@ app.post('/api/anypoint/sla-tiers', async (req, res) => {
     }));
     res.json({ tiers });
   } catch (e) {
-    res.status(502).json({ error: e.response?.data?.message || e.message });
+    const msg = e.response?.data?.message || e.message;
+    console.warn(`[sla-tiers] apiId=${req.body.apiId} failed: ${msg}`);
+    res.json({ tiers: [], warning: String(msg) });
   }
 });
 
@@ -546,7 +575,9 @@ app.post('/api/anypoint/contracts', async (req, res) => {
     }));
     res.json({ contracts });
   } catch (e) {
-    res.status(502).json({ error: e.response?.data?.message || e.message });
+    const msg = e.response?.data?.message || e.message;
+    console.warn(`[contracts] apiId=${req.body.apiId} failed: ${msg}`);
+    res.json({ contracts: [], warning: String(msg) });
   }
 });
 

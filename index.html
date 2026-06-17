@@ -718,7 +718,7 @@ VIEWS[3]=()=>`
 
 function renderApiPoliciesTab(a){
   const pols=S.apiPolicies[a.id];
-  if(pols===undefined) return `<div style="color:var(--ink3);font-size:12px">No data yet — select this API and click "Load policies &amp; SLA tiers" above</div>`;
+  if(pols===undefined) return `<div style="color:var(--ink3);font-size:12px"><span class="dot-live"></span> Fetching policies…</div>`;
   if(!pols.length) return `<div style="color:var(--ink3);font-size:12px">No policies applied to this API</div>`;
   return `<table class="tbl"><thead><tr><th>Policy</th><th>Configuration</th></tr></thead><tbody>${
     pols.map(p=>{
@@ -731,7 +731,7 @@ function renderApiPoliciesTab(a){
 
 function renderApiSlaTab(a){
   const tiers=S.apiSlas[a.id];
-  if(tiers===undefined) return `<div style="color:var(--ink3);font-size:12px">No data yet — select this API and click "Load policies &amp; SLA tiers" above</div>`;
+  if(tiers===undefined) return `<div style="color:var(--ink3);font-size:12px"><span class="dot-live"></span> Fetching SLA tiers…</div>`;
   if(!tiers.length) return `<div style="color:var(--ink3);font-size:12px">No SLA tiers defined for this API</div>`;
   return `<table class="tbl"><thead><tr><th>Tier</th><th>Limits</th><th>Auto-approve</th></tr></thead><tbody>${
     tiers.map(t=>{
@@ -788,10 +788,33 @@ window.toggleApiSel=(id)=>{
   render();
 };
 
-window.toggleApiDetail=(id)=>{
+window.toggleApiDetail=async(id)=>{
   const i=S.expandedApis.indexOf(id);
-  if(i===-1){ S.expandedApis.push(id); if(!S.activeApiTab[id]) S.activeApiTab[id]='policies'; }
-  else S.expandedApis.splice(i,1);
+  if(i===-1){
+    S.expandedApis.push(id);
+    if(!S.activeApiTab[id]) S.activeApiTab[id]='policies';
+    render();
+    if(S.apiPolicies[id]===undefined) loadSingleApiDetails(id);
+  } else {
+    S.expandedApis.splice(i,1);
+    render();
+  }
+};
+
+window.loadSingleApiDetails=async(id)=>{
+  if(!S.selectedEnv) return;
+  if(!S._apiDetailsLoading) S._apiDetailsLoading={};
+  if(S._apiDetailsLoading[id]) return;
+  S._apiDetailsLoading[id]=true;
+  render();
+  const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+  const [pol,sla]=await Promise.allSettled([
+    api('/api/anypoint/policies',{...base,apiId:id}),
+    api('/api/anypoint/sla-tiers',{...base,apiId:id}),
+  ]);
+  S.apiPolicies[id]=pol.status==='fulfilled'?pol.value.policies||[]:[];
+  S.apiSlas[id]=sla.status==='fulfilled'?sla.value.tiers||[]:[];
+  S._apiDetailsLoading[id]=false;
   render();
 };
 
@@ -805,15 +828,9 @@ window.loadSelectedPolicies=async()=>{
   if(!apis.length||!S.selectedEnv) return;
   S._loadingPolicies=true;
   render();
-  const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
-  await Promise.allSettled(apis.map(async a=>{
-    const [pol,sla]=await Promise.allSettled([
-      api('/api/anypoint/policies',{...base,apiId:a.id}),
-      api('/api/anypoint/sla-tiers',{...base,apiId:a.id}),
-    ]);
-    S.apiPolicies[a.id]=pol.status==='fulfilled'?pol.value.policies||[]:[];
-    S.apiSlas[a.id]=sla.status==='fulfilled'?sla.value.tiers||[]:[];
-  }));
+  // Reset loaded state so loadSingleApiDetails re-fetches even if previously empty
+  apis.forEach(a=>{ delete S.apiPolicies[a.id]; delete S.apiSlas[a.id]; if(S._apiDetailsLoading) S._apiDetailsLoading[a.id]=false; });
+  await Promise.allSettled(apis.map(a=>loadSingleApiDetails(a.id)));
   S._loadingPolicies=false;
   render();
 };
