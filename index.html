@@ -243,13 +243,13 @@ const S = {
   runtimeApps: [], apiManagerApis: [],
   selectedApis: [], selectedApiNames: [],
   expandedApis: [], activeApiTab: {},
-  apiPolicies: {}, apiSlas: {}, apiContracts: {},
+  apiPolicies: {}, apiSlas: {}, apiContracts: {}, hldDiagram: null, lldDiagrams: {}, anypointApis: [],
   _loadingPolicies: false,
   // Step 5 — Parse
   projects: {}, analysed: false,
   // Step 6 — Blueprint
   // Step 7 — HLD/LLD
-  hld: '', hldDiagram: null, lld: {}, lldDiagrams: {},
+  hld: '', lld: {},
   // Step 8 — Mappings reviewed
   mappingOverrides: {},
   // Step 9 — Artifacts
@@ -788,6 +788,8 @@ window.discoverDeployments=async()=>{
     ]);
     S.runtimeApps = rmData.status==='fulfilled'?rmData.value.apps:[];
     S.apiManagerApis = amData.status==='fulfilled'?amData.value.apis:[];
+    S.anypointApis = S.apiManagerApis;
+    S.anypointApis = S.anypointApis || [];
     S.selectedApis=[];
     st.innerHTML='';
     render();
@@ -1211,7 +1213,15 @@ window.generateHLD=async()=>{
     const totalWeeks=Object.values(S.aiDecs).reduce((s,d)=>s+(d.effortWeeks||4),0)||projs.length*4;
     const full=await new Promise((res,rej)=>{
       let f='';
-      streamSSE('/api/ai/hld',{projects:projs,selectedApis:selApis,runtimeApps:S.runtimeApps,apiPolicies:S.apiPolicies,apiSlas:S.apiSlas,decisions:S.aiDecs,totalEffortWeeks:totalWeeks},
+      streamSSE('/api/ai/hld',{
+        projects: projs,
+        selectedApis: S.apiManagerApis || [],
+        apiPolicies: S.apiPolicies || {},
+        apiSlas: S.apiSlas || {},
+        runtimeApps: S.runtimeApps || [],
+        decisions: S.mappingOverrides || {},
+        totalEffortWeeks: Object.keys(S.projects).length * 4,
+      },
         t=>{ f+=t; const e=document.getElementById('hldStream'); if(e){e.innerHTML=esc(f)+'<span class="cur"></span>';e.scrollTop=e.scrollHeight;} },
         ()=>res(f),
         e=>rej(new Error(e))
@@ -1242,9 +1252,23 @@ window.generateLLD=async()=>{
       const full=await new Promise((res,rej)=>{
         let f='';
         streamSSE('/api/ai/lld',{
-          project:{name,tier:a.tier},
-          analysis:{flowCount:a.flowCount,dwlCount:a.dwlCount,connectors:a.connectors,hasObjectStore:a.hasObjectStore,hasIdempotency:a.hasIdempotency,orchChains:a.orchChains,endpointFlows:a.endpointCount||0},
-          policies,slaTiers,contracts,anypointApp,businessDescription:a.description||'',
+          project: {name, tier: a.tier},
+          analysis: {
+            flowCount: a.flowCount,
+            dwlCount: a.dwlCount,
+            connectors: a.connectors,
+            hasObjectStore: a.hasObjectStore,
+            hasIdempotency: a.hasIdempotency,
+            orchChains: a.orchChains,
+            endpointFlows: (a.endpointFlows||[]).map(f=>({method:f.http_method,path:f.http_path}))
+          },
+          policies: Object.values(S.apiPolicies).flat().filter(p => {
+            const matchedApi = S.anypointApis ? S.anypointApis.find(api => api.name && api.name.toLowerCase().includes(name.toLowerCase().replace(/-api$/,''))) : null;
+            return matchedApi ? (S.apiPolicies[matchedApi.id]||[]).includes(p) : false;
+          }),
+          slaTiers: (()=>{ const m=S.anypointApis?S.anypointApis.find(api=>api.name&&api.name.toLowerCase().includes(name.toLowerCase().replace(/-api$/,''))):null; return m?(S.apiSlas[m.id]||[]):[];})(),
+          contracts: (()=>{ const m=S.anypointApis?S.anypointApis.find(api=>api.name&&api.name.toLowerCase().includes(name.toLowerCase().replace(/-api$/,''))):null; return m?(S.apiContracts[m.id]||[]):[];})(),
+          businessDescription: '',
         }, t=>f+=t, ()=>res(f), e=>rej(new Error(e)));
       });
       const lldDiagMatch=full.match(/===LLD_DIAGRAM===([\s\S]*?)===END_LLD_DIAGRAM===/);
