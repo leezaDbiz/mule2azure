@@ -723,8 +723,14 @@ function renderApiPoliciesTab(a){
   return `<table class="tbl"><thead><tr><th>Policy</th><th>Configuration</th></tr></thead><tbody>${
     pols.map(p=>{
       const cfg=p.configuration||p.configurationData||{};
-      const cfgStr=Object.keys(cfg).length?Object.entries(cfg).map(([k,v])=>`<span style="color:var(--ink3)">${esc(String(k))}:</span> ${esc(String(v))}`).join(' · '):'—';
-      return `<tr><td style="font-size:12px;font-weight:500">${esc(p.name||String(p.policyId)||'?')}</td><td style="font-size:11px;font-family:var(--mono)">${cfgStr}</td></tr>`;
+      const cfgStr=Object.keys(cfg).length
+        ?Object.entries(cfg).map(([k,v])=>`<div style="margin-bottom:2px"><span style="color:var(--ink3)">${esc(String(k))}:</span> <span style="color:var(--ink2)">${esc(String(v))}</span></div>`).join('')
+        :'<span style="color:var(--ink3)">—</span>';
+      const badge=p.disabled?`<span class="pill warn" style="font-size:10px;margin-left:6px">disabled</span>`:'';
+      return `<tr>
+        <td style="font-size:12px;font-weight:500;vertical-align:top">${esc(p.name||String(p.policyId)||'?')}${badge}</td>
+        <td style="font-size:11px;font-family:var(--mono);vertical-align:top">${cfgStr}</td>
+      </tr>`;
     }).join('')
   }</tbody></table>`;
 }

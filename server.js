@@ -401,12 +401,12 @@ app.post('/api/anypoint/api-manager', async (req, res) => {
       let policies = [];
       try {
         const polR = await axios.get(
-          `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${api.id}/policies?fullInfo=true`,
+          `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${api.id}/policies`,
           { headers }
         );
         const raw = Array.isArray(polR.data) ? polR.data : (polR.data?.policies || polR.data?.items || []);
         policies = raw.map(p =>
-          p.template?.assetId || p.policyTemplateId || String(p.id)
+          p.template?.name || p.template?.assetId || p.policyTemplateId || p.assetId || String(p.id)
         ).filter(Boolean);
       } catch (_) { /* no policies or no permission — leave empty */ }
 
@@ -506,25 +506,31 @@ app.post('/api/github/fetch-mule-files', async (req, res) => {
 // ─────────────────────────────────────────────
 // Anypoint: get applied policies for a specific API
 // ─────────────────────────────────────────────
+const toTitle = s => String(s).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 app.post('/api/anypoint/policies', async (req, res) => {
   const { accessToken, orgId, envId, apiId } = req.body;
   if (!accessToken || !orgId || !envId || !apiId) return res.status(400).json({ error: 'accessToken, orgId, envId, apiId required' });
   try {
     const r = await axios.get(
-      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/policies?fullInfo=true`,
+      `https://anypoint.mulesoft.com/apimanager/api/v1/organizations/${orgId}/environments/${envId}/apis/${apiId}/policies`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    // Anypoint may return array directly, or { policies: [...] }, or { items: [...] }
+    // Anypoint returns a direct array; some versions wrap it
     const raw = Array.isArray(r.data) ? r.data : (r.data?.policies || r.data?.items || []);
-    const policies = raw.map(p => ({
-      policyId:          p.id,
-      name:              p.template?.name || p.template?.assetId || p.policyTemplateId || String(p.id),
-      configuration:     p.configuration || p.configurationData || {},
-      order:             p.order,
-    }));
+    console.log(`[policies] apiId=${apiId} raw count=${raw.length}`, raw.length ? JSON.stringify(raw[0]).slice(0,200) : '');
+    const policies = raw.map(p => {
+      const rawName = p.template?.name || p.template?.assetId || p.policyTemplateId || p.assetId || String(p.id);
+      return {
+        policyId:      p.id,
+        name:          rawName.includes('-') ? toTitle(rawName) : rawName,
+        configuration: p.configuration || p.configurationData || {},
+        order:         p.order,
+        disabled:      p.disabled || false,
+      };
+    });
     res.json({ policies });
   } catch (e) {
-    // Return empty instead of 502 — missing policies shouldn't block the UI
     const msg = e.response?.data?.message || e.response?.data || e.message;
     console.warn(`[policies] apiId=${apiId} failed: ${msg}`);
     res.json({ policies: [], warning: String(msg) });
