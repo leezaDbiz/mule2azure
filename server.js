@@ -391,11 +391,10 @@ app.post('/api/anypoint/api-manager', async (req, res) => {
       return [asset];
     });
 
-    // Log shape of first item to help debug field names in server logs
-    if (rawApis.length > 0) {
-      console.log('[api-manager] first API keys:', Object.keys(rawApis[0]).join(', '));
-      console.log('[api-manager] sample:', JSON.stringify(rawApis[0]).slice(0, 400));
-    }
+    // Log full first item so we can see real field structure in server logs
+    if (rawApis.length > 0) console.log('API Manager sample item:', JSON.stringify(rawApis[0], null, 2));
+
+    const humanise = s => (s || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
     const results = await Promise.allSettled(rawApis.map(async api => {
       let policies = [];
@@ -406,24 +405,27 @@ app.post('/api/anypoint/api-manager', async (req, res) => {
         );
         const raw = Array.isArray(polR.data) ? polR.data : (polR.data?.policies || polR.data?.items || []);
         policies = raw.map(p =>
-          p.template?.name || p.template?.assetId || p.policyTemplateId || p.assetId || String(p.id)
+          humanise(p.assetId || p.template?.name || p.template?.assetId || p.policyTemplateId || String(p.id))
         ).filter(Boolean);
       } catch (_) { /* no policies or no permission — leave empty */ }
 
+      const name = api.instanceLabel || api.assetId || api.exchangeAssetName || api.name || 'unknown';
+      const version = api.productVersion || api.assetVersion || '—';
       const tech = api.technology
-        || (api.endpoint?.muleVersion4OrAbove === true  ? 'mule4' : null)
-        || (api.endpoint?.muleVersion4OrAbove === false ? 'mule3' : null)
-        || (api.endpoint?.type ? api.endpoint.type : null);
+        || (api.endpoint?.muleVersion4OrAbove === true  ? 'mule4'
+          : api.endpoint?.muleVersion4OrAbove === false ? 'mule3' : '—');
+      const endpoint = api.endpoint?.uri || api.endpoint?.proxyUri || '—';
+      const autodiscovery = api.autodiscoveryInstanceName || '—';
 
       return {
         id:            api.id,
-        name:          api.assetId || api.exchangeAssetName || api.name,
-        version:       api.productVersion || api.assetVersion || api.version,
-        status:        api.status || (api.active === true ? 'active' : null) || (api.deprecated ? 'deprecated' : 'active'),
+        name,
+        version,
+        status:        api.status || (api.active === true ? 'active' : api.deprecated ? 'deprecated' : 'active'),
         technology:    tech,
-        endpoint:      api.endpoint?.uri || api.endpoint?.proxyUri,
+        endpoint,
         policies,
-        autodiscovery: api.autodiscoveryInstanceName || api.autodiscovery,
+        autodiscovery,
       };
     }));
 
@@ -506,7 +508,7 @@ app.post('/api/github/fetch-mule-files', async (req, res) => {
 // ─────────────────────────────────────────────
 // Anypoint: get applied policies for a specific API
 // ─────────────────────────────────────────────
-const toTitle = s => String(s).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const humanise = s => (s || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 app.post('/api/anypoint/policies', async (req, res) => {
   const { accessToken, orgId, envId, apiId } = req.body;
@@ -518,17 +520,15 @@ app.post('/api/anypoint/policies', async (req, res) => {
     );
     // Anypoint returns a direct array; some versions wrap it
     const raw = Array.isArray(r.data) ? r.data : (r.data?.policies || r.data?.items || []);
-    console.log(`[policies] apiId=${apiId} raw count=${raw.length}`, raw.length ? JSON.stringify(raw[0]).slice(0,200) : '');
-    const policies = raw.map(p => {
-      const rawName = p.template?.name || p.template?.assetId || p.policyTemplateId || p.assetId || String(p.id);
-      return {
-        policyId:      p.id,
-        name:          rawName.includes('-') ? toTitle(rawName) : rawName,
-        configuration: p.configuration || p.configurationData || {},
-        order:         p.order,
-        disabled:      p.disabled || false,
-      };
-    });
+    console.log(`[policies] apiId=${apiId} raw count=${raw.length}`, raw.length ? JSON.stringify(raw[0]).slice(0, 200) : '');
+    const policies = raw.map(p => ({
+      policyId:          p.id || p.policyTemplateId,
+      name:              humanise(p.assetId || p.template?.name || p.template?.assetId || String(p.policyTemplateId || '')),
+      assetId:           p.assetId || p.template?.assetId || '',
+      configurationData: p.configurationData || p.configuration || {},
+      order:             p.order,
+      disabled:          p.disabled || false,
+    }));
     res.json({ policies });
   } catch (e) {
     const msg = e.response?.data?.message || e.response?.data || e.message;
