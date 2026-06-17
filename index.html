@@ -1387,38 +1387,73 @@ ${Object.keys(S.projects).map(n=>`resource fn_${n.replace(/-/g,'_')} 'Microsoft.
 VIEWS[9]=()=>`
   <div class="crumb">Mule2Azure <span class="sep">/</span><span class="cur">Connect Azure</span></div>
   <h2 class="pt">Connect your Azure account</h2>
-  <p class="ps">Enter your Azure Service Principal credentials so the tool can deploy directly to your subscription. The tool needs Contributor role on the target resource group.</p>
-  <div class="card">
+  <p class="ps">Configure your Azure subscription details so the tool can generate deployment-ready artifacts.</p>
+
+  <div class="card" style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:14px">Azure configuration</div>
+
     <label class="lbl">Subscription ID</label>
-    <div class="inp-row"><input class="inp" id="azSubId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false"></div>
-    <label class="lbl">Resource group (will be created if it doesn't exist)</label>
-    <div class="inp-row"><input class="inp" id="azRg" placeholder="mule2azure-prod" spellcheck="false"></div>
-    <label class="lbl">Region</label>
+    <div class="inp-row"><input class="inp" id="azSubId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" value="${esc(S.azureSubId||'')}"></div>
+
+    <label class="lbl" style="margin-top:10px">Resource Group</label>
+    <div class="inp-row"><input class="inp" id="azRg" placeholder="mule2azure-prod" spellcheck="false" value="${esc(S.azureRg||'mule2azure-prod')}"></div>
+
+    <label class="lbl" style="margin-top:10px">Region</label>
     <div class="inp-row">
       <select class="inp" id="azRegion">
-        <option value="eastus">East US</option>
-        <option value="westeurope">West Europe</option>
-        <option value="southeastasia">Southeast Asia</option>
-        <option value="australiaeast">Australia East</option>
-        <option value="uksouth">UK South</option>
+        <option value="eastus"        ${(S.azureRegion||'eastus')==='eastus'        ?'selected':''}>East US</option>
+        <option value="westeurope"    ${S.azureRegion==='westeurope'    ?'selected':''}>West Europe</option>
+        <option value="southeastasia" ${S.azureRegion==='southeastasia' ?'selected':''}>Southeast Asia</option>
+        <option value="uksouth"       ${S.azureRegion==='uksouth'       ?'selected':''}>UK South</option>
+        <option value="australiaeast" ${S.azureRegion==='australiaeast' ?'selected':''}>Australia East</option>
       </select>
     </div>
-    <div class="banner ai" style="margin-top:8px">
+
+    <div class="banner ai" style="margin-top:12px">
       <div class="ic">ℹ</div>
-      <div>For actual deployment, run <code>az login</code> in your terminal then use the validate.py script. The UI deployment step uses the CLI under the hood.</div>
+      <div>For the prototype, Azure connection is simulated. Real deployment uses the Azure CLI commands in the next step.</div>
     </div>
-    <button class="btn btn-p" onclick="saveAzureConfig()" style="margin-top:14px">Save & continue</button>
+
+    <button class="btn btn-p" onclick="saveAzureConfig()" style="margin-top:14px">Save configuration</button>
+    <div id="azSaveStatus" style="margin-top:8px"></div>
   </div>
-  <div class="nrow">
-    ${S.azureConnected?`<button class="btn btn-p" onclick="unlock(10);go(10)">Next: Deploy →</button><span style="font-size:12px;color:var(--ok)">✓ Azure config saved</span>`:''}
-  </div>`;
+
+  ${S.azureConnected?`
+  <div class="card" style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">Connection status</div>
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:12.5px">
+      <span style="color:var(--ink3)">Subscription ID</span>
+      <span class="mono">${S.azureSubId.length>8?S.azureSubId.slice(0,8)+'••••••••••••••••••••••••••••':S.azureSubId}</span>
+      <span style="color:var(--ink3)">Resource Group</span>
+      <span class="mono">${esc(S.azureRg)}</span>
+      <span style="color:var(--ink3)">Region</span>
+      <span class="mono">${esc(S.azureRegion)}</span>
+      <span style="color:var(--ink3)">Status</span>
+      <span style="color:var(--ok);font-weight:600">✓ Configuration saved</span>
+    </div>
+    <div class="nrow" style="margin-top:16px">
+      <button class="btn btn-p" onclick="unlock(10);go(10)">Next: Deploy →</button>
+    </div>
+  </div>`:''}`;
 
 window.saveAzureConfig=()=>{
-  S.azureSubId=document.getElementById('azSubId').value.trim();
-  S.azureRg=document.getElementById('azRg').value.trim()||'mule2azure-prod';
-  S.azureRegion=document.getElementById('azRegion').value;
+  const subId=document.getElementById('azSubId').value.trim();
+  const rg=document.getElementById('azRg').value.trim()||'mule2azure-prod';
+  const region=document.getElementById('azRegion').value;
+  const st=document.getElementById('azSaveStatus');
+  if(!subId){
+    if(st) st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>Subscription ID is required</div></div>`;
+    return;
+  }
+  S.azureSubId=subId;
+  S.azureRg=rg;
+  S.azureRegion=region;
   S.azureConnected=true;
-  unlock(10); go(10);
+  unlock(10);
+  render();
+  // Show success banner after render re-builds the DOM
+  const st2=document.getElementById('azSaveStatus');
+  if(st2) st2.innerHTML=`<div class="banner ok"><div class="ic">✓</div><div>Configuration saved — subscription, resource group and region stored</div></div>`;
 };
 
 /* ================================================================
