@@ -615,7 +615,7 @@ app.post('/api/anypoint/exchange', async (req, res) => {
 // STEP 7 — AI: Generate HLD + LLD
 // ─────────────────────────────────────────────
 app.post('/api/ai/hld', async (req, res) => {
-  const { projects } = req.body;
+  const { projects, selectedApis, runtimeApps, apiPolicies, apiSlas, decisions, totalEffortWeeks } = req.body;
 
   res.writeHead(200, {
     'Content-Type':  'text/event-stream',
@@ -623,28 +623,162 @@ app.post('/api/ai/hld', async (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
-  const prompt = `You are a senior Azure integration architect. Generate a High Level Design (HLD) document for migrating these MuleSoft projects to Azure Integration Services.
+  const apiList = (selectedApis || []).map(a =>
+    `  - ${a.name} v${a.version || '?'} [${a.technology || 'unknown'}] status=${a.status} endpoint=${a.endpoint || 'none'}`
+  ).join('\n') || '  (no API Manager data)';
 
-Projects:
-${projects.map(p => `- ${p.name} (${p.tier}): ${p.flowCount} flows, connectors: [${p.connectors?.join(', ') || 'HTTP'}]`).join('\n')}
+  const policyContext = Object.entries(apiPolicies || {}).map(([id, pols]) => {
+    const api = (selectedApis || []).find(a => String(a.id) === String(id));
+    return `  - ${api?.name || id}: ${(pols || []).map(p => p.name || p).join(', ') || 'none'}`;
+  }).join('\n') || '  (no policy data)';
 
-Generate a structured HLD covering:
-1. EXECUTIVE SUMMARY — business drivers, scope, target state
-2. AZURE ARCHITECTURE — which Azure services replace which Mule components, with justification
-3. NETWORK TOPOLOGY — VNet design, subnets, private endpoints, ExpressRoute for SAP
-4. SECURITY DESIGN — Managed Identity, Key Vault, Entra ID, APIM policies
-5. INTEGRATION PATTERNS — sync vs async, retry strategy, DLQ handling, idempotency
-6. OBSERVABILITY — App Insights, Log Analytics, alerts, correlation IDs
-7. MIGRATION STRATEGY — strangler fig order, parallel run approach, cutover criteria
-8. RISKS AND MITIGATIONS — top 5 risks with mitigation plan
+  const slaContext = Object.entries(apiSlas || {}).map(([id, tiers]) => {
+    const api = (selectedApis || []).find(a => String(a.id) === String(id));
+    return `  - ${api?.name || id}: ${(tiers || []).map(t => t.name).join(', ') || 'no SLA tiers'}`;
+  }).join('\n') || '  (no SLA data)';
 
-Be specific and technical. Reference actual Azure service names and SKUs.`;
+  const runtimeContext = (runtimeApps || []).slice(0, 10).map(a =>
+    `  - ${a.name} [${a.type}] muleVersion=${a.muleVersion || '?'} status=${a.status}`
+  ).join('\n') || '  (no runtime data)';
+
+  const connectorSet = new Set();
+  (projects || []).forEach(p => (p.connectors || []).forEach(c => connectorSet.add(c)));
+  const allConnectors = [...connectorSet];
+  const hasSap = allConnectors.some(c => /sap/i.test(c));
+  const hasObjectStore = (projects || []).some(p => p.hasObjectStore);
+  const hasIdempotency = (projects || []).some(p => p.hasIdempotency);
+  const totalWeeks = totalEffortWeeks || (projects || []).reduce((s, p) => s + (decisions?.[p.name]?.effortWeeks || 4), 0);
+  const totalDwl = (projects || []).reduce((s, p) => s + (p.dwlCount || 0), 0);
+  const apiNames = (selectedApis || []).slice(0, 8).map((a, i) => `    M${i}["${a.name}"]`).join('\n')
+    || (projects || []).slice(0, 8).map((p, i) => `    M${i}["${p.name}"]`).join('\n');
+
+  const prompt = `You are a senior Azure integration architect. Write a formal High Level Design (HLD) document for the following MuleSoft to Azure Integration Services migration.
+
+=== MIGRATION CONTEXT ===
+Projects being migrated (${(projects || []).length}):
+${(projects || []).map(p => `  - ${p.name} (${p.tier}) — ${p.flowCount} flows, DWL: ${p.dwlCount}, connectors: [${(p.connectors || []).join(', ') || 'HTTP'}]`).join('\n')}
+
+Anypoint API Manager APIs in scope:
+${apiList}
+
+Applied policies per API:
+${policyContext}
+
+SLA tiers per API:
+${slaContext}
+
+Runtime deployments:
+${runtimeContext}
+
+Total estimated effort: ${totalWeeks} weeks | Total DWL transforms: ${totalDwl}
+Connectors detected: ${allConnectors.join(', ') || 'HTTP only'}
+SAP connector present: ${hasSap} | Object Store used: ${hasObjectStore} | Idempotency patterns: ${hasIdempotency}
+
+=== REQUIRED SECTIONS ===
+Write in markdown (## for sections, ### for sub-sections). Be specific and technical — reference actual Azure service names and SKUs.
+
+## 1. EXECUTIVE SUMMARY
+- Business drivers: cost reduction vs CloudHub worker pricing, vendor lock-in elimination, native Azure ecosystem alignment
+- Scope: state each project — migrating fully or partially; call out any APIs staying on Mule
+- Expected outcomes: operational simplicity, native observability, reduced licensing cost
+- Timeline: ${totalWeeks} total weeks broken into phases (Foundation → Migration wave 1 → Migration wave 2 → Cutover)
+
+## 2. SOLUTION CONTEXT
+- Current state: describe the MuleSoft platform as revealed by the data (CloudHub vs Hybrid, Mule 3 vs 4, worker counts)
+- Target state: Azure APIM + Azure Functions + Logic Apps Standard + Service Bus + Key Vault + App Insights
+- What is decommissioned: Anypoint Platform subscription, CloudHub workers, Anypoint Monitoring
+- External dependencies detected from connectors: ${allConnectors.join(', ') || 'HTTP only'}
+
+## 3. ARCHITECTURE OVERVIEW
+Apply three-tier model:
+- Experience APIs → Azure APIM + Functions
+- Process APIs → Logic Apps Standard + Functions
+- System APIs → Azure Functions
+
+Explain why this pattern fits this specific API set.
+
+Then output a Mermaid component diagram using EXACTLY these delimiters on their own lines:
+===HLD_DIAGRAM===
+flowchart LR
+  subgraph Mule["Current MuleSoft Platform"]
+    direction TB
+${apiNames}
+  end
+  subgraph Azure["Target Azure Platform"]
+    direction TB
+    APIM["Azure APIM\\n(Gateway + policies)"]
+    FN["Function Apps\\n(Business logic)"]
+    LA["Logic Apps Std\\n(Orchestration)"]
+    SB["Service Bus\\n(Async messaging)"]
+    KV["Key Vault\\n(Secrets)"]
+    AI2["App Insights\\n(Observability)"]
+  end
+  subgraph Ext["External Systems"]
+${allConnectors.slice(0, 4).map((c, i) => `    E${i}["${c}"]`).join('\n') || '    E0["HTTP APIs"]'}
+  end
+  Mule -->|Strangler fig migration| Azure
+  Azure -->|Downstream calls| Ext
+===END_HLD_DIAGRAM===
+Improve the diagram: map each API to the correct Azure service based on its tier. Use actual API names. Keep flowchart LR.
+
+## 4. AZURE SERVICES SELECTED
+| API Name | Technology | Current Platform | Target Azure Services | Justification |
+|---|---|---|---|---|
+${(selectedApis || projects || []).map(a => `| ${a.name || a.name} | ${a.technology || a.tier || '?'} | MuleSoft ${a.technology || 'API Manager'} | APIM + Functions | [tier-appropriate service] |`).join('\n')}
+
+## 5. SECURITY DESIGN
+Map each Anypoint policy to Azure APIM equivalent:
+${policyContext}
+
+Rules:
+- client-id-enforcement → APIM validate-jwt (Entra ID app registration) or subscription key
+- rate-limiting → APIM rate-limit-by-key with renewal-period
+- ip-allowlist → APIM ip-filter policy
+- oauth2-mule-provider → Entra ID + APIM validate-jwt with issuer URL
+Include: Managed Identity replacing Mule secure properties, Key Vault naming convention: {api-name}-{property}
+
+## 6. NETWORK DESIGN
+${hasSap ? '- SAP detected: VNet integration required; Private Endpoint for on-premises SAP Gateway; ExpressRoute or VPN tunnel' : '- No SAP connector: standard public APIM + Functions, no VNet required for this migration'}
+- Always: Private Endpoints for Key Vault and Service Bus
+- APIM tier: Developer (non-prod) → Standard v2 (prod) — justify with expected TPS from SLA tier data above
+
+## 7. INTEGRATION PATTERNS
+- Sync/async per tier: Experience = sync HTTP 200ms SLA, Process = async where orchChains > 0 (Service Bus), System = sync
+- Retry: Azure Function built-in retry + exponential backoff; map from Mule reconnect configs
+- Dead letter queue: Service Bus DLQ with Azure Monitor alert on depth > 0 from day one
+${hasObjectStore ? '- Object Store → Azure Table Storage: partition=apiId, rowKey=businessKey, conditional write (ETag), TTL via RowExpiry' : ''}
+${hasIdempotency ? '- Idempotency: Table Storage partition=apiName rowKey=correlationId; 409 on duplicate within TTL window' : ''}
+- Correlation ID: X-Correlation-Id header standard; APIM sets it if missing; Functions log it as custom dimension
+
+## 8. OBSERVABILITY
+- App Insights replaces Anypoint Monitoring; custom dimensions: { apiName, correlationId, environment, tier }
+- Log Analytics workspace: 90-day retention, link to App Insights
+- Structured log schema: { timestamp, level, message, correlationId, apiName, durationMs, statusCode, error? }
+- Alerts: DLQ depth > 0 (P1), Function error rate > 1% (P2), APIM p99 > 2s (P2), Key Vault throttling (P3)
+
+## 9. MIGRATION STRATEGY
+Strangler fig execution order (simplest/lowest risk first):
+${(selectedApis || projects || []).map((a, i) => `${i + 1}. ${a.name || a.name} — [state migration rationale based on tier and connector complexity]`).join('\n')}
+
+Parallel run: APIM routes X% → Azure, (100-X)% → Mule using backend pool weighted routing
+Cutover criteria per API: zero errors in parallel run for 48h + p95 latency within 10% of Mule baseline
+Rollback: flip APIM backend URL to Mule endpoint — target RTO < 5 minutes
+
+## 10. RISKS AND MITIGATIONS
+| Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|
+| DataWeave transpilation correctness (${totalDwl} transforms) | High | High | Treat each DWL as net-new Python code; unit test every transform; manual review mandatory |
+${hasSap ? '| SAP RFC connectivity in Azure VNet | Medium | High | VNet design spike week 1; test SAP .NET SDK in isolated Function App; validate BAPI calls before migration wave |' : ''}
+${hasObjectStore ? '| Object Store to Table Storage state migration | Medium | Medium | Design idempotency keys before wave 1; dual-write during parallel run; validate no state loss |' : ''}
+| APIM policy recreation gaps | Medium | Medium | Document every Anypoint policy before cutover; test APIM equivalent in non-prod first |
+| Mule team Azure skills gap | High | Medium | Azure training for team; pair Mule devs with Azure engineer for first two sprints |
+| Missing API contract documentation | Low | Medium | Export OpenAPI spec from each Anypoint API before decommission |`;
 
   try {
     const stream = await openai.chat.completions.create({
-      model: MODEL, max_completion_tokens: 2048, stream: true,
+      model: MODEL, max_completion_tokens: 4096, stream: true,
       messages: [
-        { role: 'system', content: 'You are a senior Azure integration architect. Write technical design documents.' },
+        { role: 'system', content: 'You are a senior Azure integration architect. Write formal technical design documents. Follow section structure exactly.' },
         { role: 'user', content: prompt },
       ],
     });
@@ -661,7 +795,7 @@ Be specific and technical. Reference actual Azure service names and SKUs.`;
 });
 
 app.post('/api/ai/lld', async (req, res) => {
-  const { project, analysis } = req.body;
+  const { project, analysis, policies, slaTiers, contracts, anypointApp, businessDescription } = req.body;
 
   res.writeHead(200, {
     'Content-Type':  'text/event-stream',
@@ -669,31 +803,186 @@ app.post('/api/ai/lld', async (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
-  const prompt = `Generate a Low Level Design (LLD) for migrating this MuleSoft project to Azure.
+  const policyList = (policies || []).map(p =>
+    `  - ${p.name || p}${p.assetId ? ` (assetId: ${p.assetId})` : ''}${p.disabled ? ' [DISABLED]' : ''}`
+  ).join('\n') || '  none';
 
-Project: ${project.name} (${project.tier})
-Flows: ${analysis.flowCount}, DWL transforms: ${analysis.dwlCount}
-Connectors: ${analysis.connectors?.join(', ') || 'HTTP only'}
-Has Object Store: ${analysis.hasObjectStore}
-Has idempotency: ${analysis.hasIdempotency}
-Orchestration chains: ${analysis.orchChains || 'none'}
+  const slaList = (slaTiers || []).map(t =>
+    `  - ${t.name}: limits=[${(t.limits || []).map(l => `${l.maximumRequests} req/${l.timePeriodInMilliseconds}ms`).join(', ')}]`
+  ).join('\n') || '  none';
 
-Generate LLD covering:
-1. COMPONENT DESIGN — each Azure Function/Logic App with inputs, outputs, dependencies
-2. API SPECIFICATION — endpoint list with methods, request/response schemas, error codes
-3. DATA MAPPING — DataWeave field mappings with Azure equivalent, flagging complex transforms
-4. ERROR HANDLING — per-error-type response codes mirroring Mule error hierarchy
-5. CONFIGURATION — environment variables, Key Vault secret names, connection strings
-6. TESTING APPROACH — unit tests per function, integration test scenarios, idempotency test cases
-7. DEPLOYMENT STEPS — ordered deployment sequence with validation checkpoints
+  const contractList = (contracts || []).map(c =>
+    `  - ${c.applicationName} (${c.status}) tier=${c.tier || 'default'}`
+  ).join('\n') || '  none';
 
-Be specific about variable names, secret names, and Azure resource names.`;
+  const connectors = (analysis?.connectors || []).join(', ') || 'HTTP only';
+  const apiSlug = (project.name || 'api').toLowerCase().replace(/[^a-z0-9]/g, '-');
+  const seqParticipants = (analysis?.connectors || []).slice(0, 3)
+    .map(c => `  participant ${c.replace(/[^a-zA-Z0-9]/g, '')} as "${c}"`).join('\n')
+    || '  participant Backend as "Downstream System"';
+  const seqCalls = (analysis?.connectors || []).slice(0, 3)
+    .map(c => `  Fn->>${c.replace(/[^a-zA-Z0-9]/g, '')}: Call ${c} API`).join('\n')
+    || '  Fn->>Backend: Process business logic';
+  const policySteps = (policies || []).filter(p => !p.disabled).slice(0, 3)
+    .map(p => `  APIM->>APIM: Apply ${p.name || p}`).join('\n')
+    || '  APIM->>APIM: Validate subscription key';
+
+  const prompt = `You are a senior Azure integration architect. Write a formal Low Level Design (LLD) document for migrating this specific MuleSoft API to Azure.
+
+=== API DETAILS ===
+Project/API name: ${project.name}
+Tier: ${project.tier}
+Flows: ${analysis?.flowCount || 0} | DataWeave transforms: ${analysis?.dwlCount || 0}
+Connectors: ${connectors}
+Has Object Store: ${analysis?.hasObjectStore || false} | Has idempotency: ${analysis?.hasIdempotency || false}
+Orchestration chains: ${analysis?.orchChains || 'none'} | Endpoint flows: ${analysis?.endpointFlows || analysis?.endpointCount || 0}
+Business description: ${businessDescription || 'Not provided'}
+Anypoint runtime app: ${anypointApp?.name || 'not found'} [${anypointApp?.type || '?'}] mule=${anypointApp?.muleVersion || '?'}
+
+Applied Anypoint policies:
+${policyList}
+
+SLA tiers:
+${slaList}
+
+Active contracts (consumer apps):
+${contractList}
+
+=== REQUIRED SECTIONS ===
+Write in markdown (## for sections). Reference the actual API name, policy names, connector names, and SLA tiers throughout. Be specific about resource names.
+
+## 1. COMPONENT DESIGN
+Azure resources to create (naming convention: fn-${apiSlug}-{env}, apim-backend-${apiSlug}, kv-${apiSlug}):
+
+| Resource | Type | SKU | Purpose |
+|---|---|---|---|
+| fn-${apiSlug}-prod | Function App | Consumption / Flex Consumption | Hosts all endpoint handlers |
+| apim-${apiSlug} | APIM API | Imported from OpenAPI spec | Gateway + policy enforcement |
+| kv-${apiSlug} | Key Vault | Standard | Secrets for this API |
+| ai-${apiSlug} | App Insights | Classic/Workspace-based | Telemetry + alerting |
+${analysis?.hasObjectStore ? `| sa${apiSlug.replace(/-/g, '')} | Storage Account (Table) | Standard LRS | Object Store replacement |` : ''}
+
+Then output a Mermaid sequence diagram using EXACTLY these delimiters on their own lines:
+===LLD_DIAGRAM===
+sequenceDiagram
+  participant Consumer
+  participant APIM as "Azure APIM"
+  participant Fn as "fn-${apiSlug}-prod"
+${seqParticipants}
+  Consumer->>APIM: Request (with auth header)
+${policySteps}
+  APIM->>Fn: Forward validated request
+${seqCalls}
+  Fn-->>APIM: 200 OK { data }
+  APIM-->>Consumer: 200 OK response
+  Note over Fn: On error: retry 3x then return 5xx
+===END_LLD_DIAGRAM===
+Improve the diagram: use actual policy names and connector names. Show error paths (alt blocks) for the most likely failure scenario.
+
+## 2. API SPECIFICATION
+For each endpoint in this API:
+
+| Method | Path | Request | Response | Error Codes |
+|---|---|---|---|---|
+| POST/GET | /api/v1/${apiSlug} | { required fields } | 200 { data } | 400, 401, 429, 500 |
+
+Mule error type → HTTP status mapping:
+- MULE:CONNECTIVITY → 503 (downstream unreachable)
+- MULE:TIMEOUT → 504 (downstream timeout)
+- MULE:SECURITY → 401 (auth failure)
+- HTTP:UNAUTHORIZED → 401
+- HTTP:NOT_FOUND → 404
+- VALIDATION:INVALID_SCHEMA → 400
+${analysis?.hasIdempotency ? '- Duplicate idempotency key → 409 Conflict' : ''}
+
+## 3. DATA MAPPING
+For each of the ${analysis?.dwlCount || 0} DataWeave transforms:
+
+| DWL Construct | Source | Target Field | Azure Equivalent | Complexity |
+|---|---|---|---|---|
+| payload.field | String/Object | body.field | Direct dict access | Simple |
+| payload.items map (item, idx) -> ... | Array | list | list comprehension with enumerate | Medium |
+| sizeOf(payload.items) | Integer | count | len(items) | Simple |
+| now() as String | DateTime | timestamp | datetime.utcnow().isoformat() | Simple |
+
+Complexity: Simple (direct) / Medium (helper needed) / Complex (manual review required — flag these)
+
+## 4. SECURITY IMPLEMENTATION
+Map each Anypoint policy to Azure APIM XML inbound policy:
+${(policies || []).map(p => {
+  const id = (p.assetId || p.name || '').toLowerCase();
+  let xml = '';
+  if (id.includes('client-id') || id.includes('client_id')) {
+    xml = '<validate-jwt header-name="Authorization" failed-validation-httpcode="401" require-expiration-time="true" />';
+  } else if (id.includes('rate-limit')) {
+    xml = '<rate-limit-by-key calls="{{limit}}" renewal-period="{{periodSeconds}}" counter-key="@(context.Subscription.Id)" />';
+  } else if (id.includes('ip')) {
+    xml = '<ip-filter action="allow"><address-range from="{{ipFrom}}" to="{{ipTo}}" /></ip-filter>';
+  } else if (id.includes('oauth')) {
+    xml = '<validate-jwt header-name="Authorization" failed-validation-httpcode="401"><openid-config url="{{entra-openid-url}}" /></validate-jwt>';
+  } else {
+    xml = '<!-- manual implementation required — no direct APIM equivalent for ' + (p.name || id) + ' -->';
+  }
+  return `- **${p.name || p}**: \`${xml}\``;
+}).join('\n') || '- No policies applied — add subscription key: `<require-subscription-key />`'}
+
+SLA tiers → APIM Products:
+${(slaTiers || []).map(t => `- "${t.name}" → APIM Product "${t.name}" with quota: ${(t.limits || []).map(l => `${l.maximumRequests} calls per ${l.timePeriodInMilliseconds / 1000}s`).join(', ')}`).join('\n') || '- No SLA tiers — create Basic and Premium APIM Products with sensible defaults'}
+
+## 5. CONFIGURATION
+
+| Variable | Source | Secret? | Notes |
+|---|---|---|---|
+| APPLICATIONINSIGHTS_CONNECTION_STRING | Key Vault: ${apiSlug}-ai-connstr | Yes | Required for App Insights telemetry |
+| APIM_SUBSCRIPTION_KEY | Key Vault: ${apiSlug}-apim-sub-key | Yes | Required if calling APIM downstream |
+${(analysis?.connectors || []).map(c => `| ${c.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_ENDPOINT | App Setting | No | Downstream ${c} base URL |
+| ${c.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_CREDENTIALS | Key Vault: ${apiSlug}-${c.toLowerCase().replace(/[^a-z0-9]/g, '-')}-creds | Yes | ${c} auth credentials |`).join('\n')}
+${analysis?.hasObjectStore ? `| STORAGE_ACCOUNT_NAME | App Setting | No | Table Storage account for Object Store replacement |
+| IDEMPOTENCY_TABLE | App Setting: ${apiSlug}-idempotency | No | Table name for idempotency keys |` : ''}
+
+## 6. ERROR HANDLING DESIGN
+
+| Mule Error Type | Scenario | Azure Handling | HTTP Status | Retry? |
+|---|---|---|---|---|
+| MULE:CONNECTIVITY | Downstream unreachable | Function built-in retry (3x, exponential backoff) | 503 | Yes (3x) |
+| MULE:TIMEOUT | Response > 30s timeout | Function timeout; return 504 after final retry | 504 | Yes (1x) |
+| MULE:SECURITY | Auth token invalid/expired | Return 401 immediately; log to App Insights | 401 | No |
+| HTTP:UNAUTHORIZED | Missing/bad Bearer token | APIM policy catches before Function invoked | 401 | No |
+| HTTP:BAD_REQUEST | Payload validation failure | Input validation at Function entry; 400 with field names | 400 | No |
+| Unhandled exception | Unexpected runtime error | Catch-all returns 500; alert fires in App Insights | 500 | No |
+${analysis?.hasIdempotency ? '| Duplicate idempotency key | Same correlationId received again | Table Storage conditional read; return 409 with original response | 409 | No |' : ''}
+
+## 7. TESTING APPROACH
+Unit test scenarios for fn-${apiSlug}-prod:
+- Happy path: valid payload → 200 with correct response schema
+- Missing required field → 400 with field name in error body
+- Downstream timeout (mock returning 504) → Function retries 3x then returns 504
+- Downstream 401 → Function returns 503 (don't leak downstream auth errors)
+${analysis?.hasIdempotency ? '- Duplicate request: send same X-Idempotency-Key twice → second call returns 409 with first response\n' : ''}
+Integration test mocks (using WireMock or Azure Function Test harness):
+${(analysis?.connectors || []).map(c => `- Mock ${c}: simulate success (200), timeout (504), and auth failure (401) scenarios`).join('\n') || '- Mock downstream HTTP APIs: simulate success, timeout, and 4xx error scenarios'}
+
+Performance: validate p95 latency ≤ Anypoint Monitoring baseline before cutover; set App Insights availability test
+
+## 8. DEPLOYMENT SEQUENCE
+Execute in this exact order for ${project.name}:
+
+1. Create Key Vault secrets: ${apiSlug}-ai-connstr, ${apiSlug}-apim-sub-key${(analysis?.connectors || []).map(c => `, ${apiSlug}-${c.toLowerCase().replace(/[^a-z0-9]/g, '-')}-creds`).join('')}
+2. Deploy Bicep template: Resource Group rg-${apiSlug}-prod, Function App fn-${apiSlug}-prod, Storage Account, App Insights workspace
+3. Deploy Function App code: az functionapp deployment source config-zip --src ./dist/${apiSlug}.zip
+4. Import OpenAPI spec into APIM: az apim api import --specification-format OpenApi --specification-path ./openapi/${apiSlug}.yaml
+5. Apply APIM inbound policies:${(policies || []).map(p => `\n   - ${p.name || p}`).join('') || '\n   - subscription key validation (default)'}
+6. Assign RBAC: Key Vault Secrets User + Monitoring Metrics Publisher to fn-${apiSlug}-prod Managed Identity
+7. Smoke test: run happy-path test against apim-non-prod.azure-api.net/v1/${apiSlug} — assert 200
+8. Enable APIM backend: set backend URL to https://fn-${apiSlug}-prod.azurewebsites.net
+9. Parallel run: route 10% APIM traffic to Azure; monitor App Insights vs Anypoint Monitoring for 48h
+10. Cutover: update APIM to 100% Azure backend; decommission Mule app after 7-day monitoring window`;
 
   try {
     const stream = await openai.chat.completions.create({
-      model: MODEL, max_completion_tokens: 2048, stream: true,
+      model: MODEL, max_completion_tokens: 4096, stream: true,
       messages: [
-        { role: 'system', content: 'You are a senior Azure integration architect. Write detailed technical specifications.' },
+        { role: 'system', content: 'You are a senior Azure integration architect. Write formal technical LLD documents. Follow section structure exactly. Reference actual API names, policy names, and connector names provided.' },
         { role: 'user', content: prompt },
       ],
     });

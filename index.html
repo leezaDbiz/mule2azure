@@ -198,6 +198,7 @@ h2.pt{font-size:24px;font-weight:650;letter-spacing:-.02em;margin-bottom:7px}
   .split{grid-template-columns:1fr}.eff-grid{grid-template-columns:1fr}
 }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 </head>
 <body>
 <div class="shell">
@@ -216,6 +217,18 @@ h2.pt{font-size:24px;font-weight:650;letter-spacing:-.02em;margin-bottom:7px}
 </div>
 
 <script>
+mermaid.initialize({startOnLoad:false,theme:'dark',themeVariables:{background:'#0f1117',primaryColor:'#1e2333',primaryTextColor:'#e2e8f5',lineColor:'#50a3e0',nodeBorder:'#0078d4',edgeLabelBackground:'#171b26'}});
+async function renderMermaid(diagramText,containerId){
+  const el=document.getElementById(containerId);
+  if(!el||!diagramText)return;
+  try{
+    const id='mermaid-'+Date.now();
+    const {svg}=await mermaid.render(id,diagramText);
+    el.innerHTML=svg;
+  }catch(e){
+    el.innerHTML='<div style="color:var(--err);font-size:12px">Diagram error: '+e.message+'</div>';
+  }
+}
 /* ================================================================
    STATE
 ================================================================ */
@@ -236,7 +249,7 @@ const S = {
   projects: {}, analysed: false,
   // Step 6 — Blueprint
   // Step 7 — HLD/LLD
-  hld: '', lld: {},
+  hld: '', hldDiagram: null, lld: {}, lldDiagrams: {},
   // Step 8 — Mappings reviewed
   mappingOverrides: {},
   // Step 9 — Artifacts
@@ -1165,14 +1178,18 @@ VIEWS[6]=()=>`
       ${S.hld?`<button class="btn btn-g" onclick="dl(S.hld,'hld.md','text/markdown')">Download HLD</button>`:''}
     </div>
     <div id="hldArea">
-      ${S.hld?`<div class="doc-view" id="hldDoc">${esc(S.hld)}</div>`:'<div style="color:var(--ink3);font-size:12.5px">Click "Generate HLD" to create the high level design document.</div>'}
+      ${S.hld?`
+        <div id="hldDiagramContainer" style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px;overflow-x:auto;min-height:40px"></div>
+        <div class="doc-view" id="hldDoc">${esc(S.hld)}</div>`
+      :'<div style="color:var(--ink3);font-size:12.5px">Click "Generate HLD" to create the high level design document.</div>'}
     </div>
   </div>
   ${Object.keys(S.lld).length?`<div class="card">
     <div style="font-size:13px;font-weight:600;margin-bottom:12px">Low Level Designs</div>
     ${Object.entries(S.lld).map(([name,doc])=>`
-      <div style="margin-bottom:14px">
-        <div style="font-size:12px;font-weight:550;color:var(--azure2);margin-bottom:6px">${esc(name)}</div>
+      <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--line)">
+        <div style="font-size:12px;font-weight:600;color:var(--azure2);margin-bottom:8px">${esc(name)}</div>
+        <div id="lldDiagram-${name.replace(/[^a-z0-9]/gi,'_')}" style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:10px;overflow-x:auto;min-height:30px"></div>
         <div class="doc-view">${esc(doc)}</div>
       </div>`).join('')}
   </div>`:''}
@@ -1186,15 +1203,23 @@ window.generateHLD=async()=>{
   const area=document.getElementById('hldArea');
   area.innerHTML=`<div class="aip"><div class="aip-hd"><div class="t">✦ Generating HLD…</div></div><div class="aip-body" id="hldStream"><span class="cur"></span></div></div>`;
   try{
-    const projs=Object.keys(S.projects).map(n=>({name:n,tier:S.projects[n].tier,flowCount:S.projects[n].flowCount,connectors:S.projects[n].connectors}));
-    S.hld=await new Promise((res,rej)=>{
+    const projs=Object.keys(S.projects).map(n=>{
+      const p=S.projects[n];
+      return {name:n,tier:p.tier,flowCount:p.flowCount,dwlCount:p.dwlCount,connectors:p.connectors,hasObjectStore:p.hasObjectStore,hasIdempotency:p.hasIdempotency,orchChains:p.orchChains};
+    });
+    const selApis=S.selectedApis.length?S.apiManagerApis.filter(a=>S.selectedApis.includes(a.id)):S.apiManagerApis;
+    const totalWeeks=Object.values(S.aiDecs).reduce((s,d)=>s+(d.effortWeeks||4),0)||projs.length*4;
+    const full=await new Promise((res,rej)=>{
       let f='';
-      streamSSE('/api/ai/hld',{projects:projs},
+      streamSSE('/api/ai/hld',{projects:projs,selectedApis:selApis,runtimeApps:S.runtimeApps,apiPolicies:S.apiPolicies,apiSlas:S.apiSlas,decisions:S.aiDecs,totalEffortWeeks:totalWeeks},
         t=>{ f+=t; const e=document.getElementById('hldStream'); if(e){e.innerHTML=esc(f)+'<span class="cur"></span>';e.scrollTop=e.scrollHeight;} },
-        ()=>{ const e=document.getElementById('hldStream'); if(e) e.innerHTML=esc(f); res(f); },
+        ()=>res(f),
         e=>rej(new Error(e))
       );
     });
+    const hldDiagMatch=full.match(/===HLD_DIAGRAM===([\s\S]*?)===END_HLD_DIAGRAM===/);
+    S.hldDiagram=hldDiagMatch?hldDiagMatch[1].trim():null;
+    S.hld=full.replace(/===HLD_DIAGRAM===[\s\S]*?===END_HLD_DIAGRAM===/g,'').trim();
     render();
   }catch(e){ area.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
   btn.disabled=false; btn.textContent='✦ Regenerate HLD';
@@ -1203,19 +1228,39 @@ window.generateHLD=async()=>{
 window.generateLLD=async()=>{
   const btn=document.getElementById('lldBtn');
   btn.disabled=true; btn.textContent='✦ Generating…';
+  const selApis=S.selectedApis.length?S.apiManagerApis.filter(x=>S.selectedApis.includes(x.id)):S.apiManagerApis;
   for(const name of Object.keys(S.projects)){
     const a=S.projects[name];
+    const slug=name.toLowerCase().split('-')[0];
+    const matchedApi=selApis.find(x=>x.name&&(x.name.toLowerCase().includes(slug)||slug.includes(x.name.toLowerCase().split('-')[0])))||selApis[0];
+    const apiId=matchedApi?.id;
+    const policies=apiId?S.apiPolicies[apiId]||[]:[];
+    const slaTiers=apiId?S.apiSlas[apiId]||[]:[];
+    const contracts=apiId?S.apiContracts[apiId]||[]:[];
+    const anypointApp=S.runtimeApps.find(x=>x.name&&(x.name.toLowerCase().includes(slug)||slug.includes(x.name.toLowerCase().split('-')[0])))||null;
     try{
-      S.lld[name]=await new Promise((res,rej)=>{
+      const full=await new Promise((res,rej)=>{
         let f='';
-        streamSSE('/api/ai/lld',{project:{name,tier:a.tier},analysis:{flowCount:a.flowCount,dwlCount:a.dwlCount,connectors:a.connectors,hasObjectStore:a.hasObjectStore,hasIdempotency:a.hasIdempotency,orchChains:a.orchChains}},
-          t=>f+=t, ()=>res(f), e=>rej(new Error(e))
-        );
+        streamSSE('/api/ai/lld',{
+          project:{name,tier:a.tier},
+          analysis:{flowCount:a.flowCount,dwlCount:a.dwlCount,connectors:a.connectors,hasObjectStore:a.hasObjectStore,hasIdempotency:a.hasIdempotency,orchChains:a.orchChains,endpointFlows:a.endpointCount||0},
+          policies,slaTiers,contracts,anypointApp,businessDescription:a.description||'',
+        }, t=>f+=t, ()=>res(f), e=>rej(new Error(e)));
       });
+      const lldDiagMatch=full.match(/===LLD_DIAGRAM===([\s\S]*?)===END_LLD_DIAGRAM===/);
+      if(lldDiagMatch){ S.lldDiagrams[name]=lldDiagMatch[1].trim(); S.lld[name]=full.replace(/===LLD_DIAGRAM===[\s\S]*?===END_LLD_DIAGRAM===/g,'').trim(); }
+      else { S.lld[name]=full; }
     }catch(e){ S.lld[name]=`Error: ${e.message}`; }
   }
   btn.disabled=false; btn.textContent='✦ Regenerate LLD';
   render();
+};
+
+BINDS[6]=()=>{
+  if(S.hldDiagram) renderMermaid(S.hldDiagram,'hldDiagramContainer');
+  Object.keys(S.lldDiagrams).forEach(name=>{
+    if(S.lldDiagrams[name]) renderMermaid(S.lldDiagrams[name],'lldDiagram-'+name.replace(/[^a-z0-9]/gi,'_'));
+  });
 };
 
 /* ================================================================
