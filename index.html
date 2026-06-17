@@ -228,7 +228,10 @@ const S = {
   environments: [], selectedEnv: null,
   // Step 4 — Discovery
   runtimeApps: [], apiManagerApis: [],
+  selectedApis: [], selectedApiNames: [],
+  expandedApis: [], activeApiTab: {},
   apiPolicies: {}, apiSlas: {}, apiContracts: {},
+  _loadingPolicies: false,
   // Step 5 — Parse
   projects: {}, analysed: false,
   // Step 6 — Blueprint
@@ -637,6 +640,7 @@ VIEWS[3]=()=>`
   </div>
   <div id="discResults" ${S.runtimeApps.length||S.apiManagerApis.length?'':'class="hide"'}>
     <div class="card">
+
       <div class="disc-card">
         <div class="dn">Runtime Manager — deployed apps (${S.runtimeApps.length})</div>
         ${S.runtimeApps.length ? `<table class="tbl">
@@ -651,46 +655,108 @@ VIEWS[3]=()=>`
           </tr>`).join('')}</tbody>
         </table>` : '<div class="di">No apps found</div>'}
       </div>
+
       <div class="disc-card">
-        <div class="dn">API Manager — managed APIs (${S.apiManagerApis.length})</div>
-        ${S.apiManagerApis.length ? `<table class="tbl">
-          <thead><tr><th>API</th><th>Version</th><th>Technology</th><th>Status</th><th>Policies</th><th>Autodiscovery</th></tr></thead>
-          <tbody>${S.apiManagerApis.map(a=>`<tr>
-            <td class="mono">${esc(a.name)}</td>
-            <td class="mono">${esc(a.version||'—')}</td>
-            <td>${a.technology?`<span class="pill ${a.technology.includes('4')?'ok':'warn'}">${esc(a.technology)}</span>`:'<span style="color:var(--ink3);font-size:11px">unknown</span>'}</td>
-            <td><span class="pill ${a.status==='active'?'ok':'warn'}">${esc(a.status||'?')}</span></td>
-            <td style="font-size:11px;color:var(--ink2)">${a.policies?.length?a.policies.map(p=>`<span class="pill warn" style="font-size:10px">${esc(p)}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
-            <td class="mono" style="font-size:11px;color:var(--ink3)">${esc(a.autodiscovery||'—')}</td>
-          </tr>`).join('')}</tbody>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="dn" style="margin:0">API Manager — managed APIs (${S.apiManagerApis.length})</div>
+          ${S.apiManagerApis.length?`<button class="btn btn-g" onclick="toggleAllApis()" style="padding:4px 12px;font-size:11px">${S.selectedApis.length===S.apiManagerApis.length&&S.apiManagerApis.length>0?'Deselect all':'Select all'}</button>`:''}
+        </div>
+
+        ${S.selectedApis.length?`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--azure2);color:#fff;border-radius:6px;margin-bottom:10px;font-size:12.5px">
+          <span style="font-weight:600">${S.selectedApis.length} API${S.selectedApis.length!==1?'s':''} selected</span>
+          <span style="opacity:0.6">—</span>
+          <button class="btn" onclick="loadSelectedPolicies()" style="padding:4px 12px;font-size:12px;background:#fff;color:var(--azure2);border:none;border-radius:4px;cursor:pointer;font-weight:600">Load policies &amp; SLA tiers</button>
+          ${S._loadingPolicies?`<span style="opacity:0.85"><span class="dot-live"></span> Loading…</span>`:''}
+        </div>`:''}
+
+        ${S.apiManagerApis.length?`<table class="tbl">
+          <thead><tr>
+            <th style="width:32px;text-align:center"></th>
+            <th>API</th><th>Version</th><th>Technology</th><th>Status</th><th>Policies</th><th>Autodiscovery</th><th style="width:80px"></th>
+          </tr></thead>
+          <tbody>${S.apiManagerApis.map(a=>{
+            const sel=S.selectedApis.includes(a.id);
+            const exp=S.expandedApis.includes(a.id);
+            const tab=S.activeApiTab[a.id]||'policies';
+            return `<tr style="${sel?'background:color-mix(in srgb,var(--azure2) 7%,transparent)':''}">
+              <td style="text-align:center"><input type="checkbox" ${sel?'checked':''} onchange="toggleApiSel(${a.id})" style="width:14px;height:14px;cursor:pointer"></td>
+              <td class="mono">${esc(a.name)}</td>
+              <td class="mono">${esc(a.version||'—')}</td>
+              <td>${a.technology?`<span class="pill ${a.technology.includes('4')?'ok':'warn'}">${esc(a.technology)}</span>`:'<span style="color:var(--ink3);font-size:11px">unknown</span>'}</td>
+              <td><span class="pill ${a.status==='active'?'ok':'warn'}">${esc(a.status||'?')}</span></td>
+              <td style="font-size:11px">${a.policies?.length?a.policies.map(p=>`<span class="pill warn" style="font-size:10px">${esc(p)}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
+              <td class="mono" style="font-size:11px;color:var(--ink3)">${esc(a.autodiscovery||'—')}</td>
+              <td style="text-align:right"><button class="btn btn-g" onclick="toggleApiDetail(${a.id})" style="padding:3px 10px;font-size:11px">${exp?'▲ Hide':'▼ Details'}</button></td>
+            </tr>
+            ${exp?`<tr>
+              <td colspan="8" style="padding:0;background:var(--bg);border-top:1px solid var(--bdr)">
+                <div style="padding:14px 16px 14px 44px">
+                  <div style="display:flex;gap:2px;margin-bottom:12px;border-bottom:1px solid var(--bdr)">
+                    ${['policies','sla','consumers'].map(t=>`<button onclick="switchApiTab(${a.id},'${t}')" style="padding:6px 16px;font-size:12px;background:${tab===t?'var(--azure2)':'transparent'};color:${tab===t?'#fff':'var(--ink2)'};border:none;border-bottom:${tab===t?'2px solid var(--azure2)':'2px solid transparent'};cursor:pointer;font-weight:${tab===t?600:400}">${t==='sla'?'SLA Tiers':t==='consumers'?'Consumers':'Policies'}</button>`).join('')}
+                    ${S.apiPolicies[a.id]===undefined&&tab!=='consumers'?`<span style="margin-left:auto;font-size:11px;color:var(--ink3);align-self:center">Select &amp; click "Load policies" to fetch data</span>`:''}
+                  </div>
+                  ${tab==='policies'?renderApiPoliciesTab(a):''}
+                  ${tab==='sla'?renderApiSlaTab(a):''}
+                  ${tab==='consumers'?renderApiConsumersTab(a):''}
+                </div>
+              </td>
+            </tr>`:''}`;
+          }).join('')}</tbody>
         </table>` : '<div class="di">No APIs found</div>'}
       </div>
     </div>
-    ${S.apiManagerApis.length?`
-    <div class="card" style="margin-top:14px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div style="font-size:13px;font-weight:600">Policies, SLA tiers &amp; consumers</div>
-        <button class="btn btn-g" id="loadPoliciesBtn" onclick="loadPoliciesAndSla()" style="padding:5px 14px;font-size:12px">Load policies &amp; SLA tiers</button>
-      </div>
-      <div id="policyStatus"></div>
-      ${Object.keys(S.apiPolicies).length?`<table class="tbl">
-        <thead><tr><th>API</th><th>Policies applied</th><th>SLA tiers</th><th>Consumers</th></tr></thead>
-        <tbody>${S.apiManagerApis.map(a=>`<tr>
-          <td class="mono">${esc(a.name)}</td>
-          <td style="font-size:11px">${(S.apiPolicies[a.id]||[]).length?(S.apiPolicies[a.id]).map(p=>`<span class="pill warn" style="font-size:10px">${esc(p.name||String(p.policyId)||'?')}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
-          <td style="font-size:11px">${(S.apiSlas[a.id]||[]).length?(S.apiSlas[a.id]).map(t=>`<span class="pill ok" style="font-size:10px">${esc(t.name)}</span>`).join(' '):'<span style="color:var(--ink3)">none</span>'}</td>
-          <td class="mono" style="font-size:11px">${(S.apiContracts[a.id]||[]).length||'—'}</td>
-        </tr>`).join('')}</tbody>
-      </table>`:'<div class="di" style="font-size:12px;color:var(--ink3)">Click "Load policies &amp; SLA tiers" to fetch details for each API</div>'}
-    </div>`:''}
+
     <div class="nrow">
-      <button class="btn btn-p" onclick="unlock(4);go(4)">Next: Parse applications →</button>
-      <span style="font-size:12px;color:var(--ink2)">${S.runtimeApps.length} apps · ${S.apiManagerApis.length} APIs discovered</span>
+      <button class="btn btn-p" onclick="proceedToParse()">Continue with ${S.selectedApis.length||S.apiManagerApis.length} selected API${(S.selectedApis.length||S.apiManagerApis.length)!==1?'s':''} →</button>
+      <span style="font-size:12px;color:var(--ink2)">${S.runtimeApps.length} app${S.runtimeApps.length!==1?'s':''} · ${S.apiManagerApis.length} APIs discovered</span>
     </div>
   </div>
-  <div class="nrow ${S.runtimeApps.length?'hide':''}">
+  <div class="nrow ${S.runtimeApps.length||S.apiManagerApis.length?'hide':''}">
     <button class="btn btn-g" onclick="go(2)">← Back</button>
   </div>`;
+
+function renderApiPoliciesTab(a){
+  const pols=S.apiPolicies[a.id];
+  if(pols===undefined) return `<div style="color:var(--ink3);font-size:12px">No data yet — select this API and click "Load policies &amp; SLA tiers" above</div>`;
+  if(!pols.length) return `<div style="color:var(--ink3);font-size:12px">No policies applied to this API</div>`;
+  return `<table class="tbl"><thead><tr><th>Policy</th><th>Configuration</th></tr></thead><tbody>${
+    pols.map(p=>{
+      const cfg=p.configuration||p.configurationData||{};
+      const cfgStr=Object.keys(cfg).length?Object.entries(cfg).map(([k,v])=>`<span style="color:var(--ink3)">${esc(String(k))}:</span> ${esc(String(v))}`).join(' · '):'—';
+      return `<tr><td style="font-size:12px;font-weight:500">${esc(p.name||String(p.policyId)||'?')}</td><td style="font-size:11px;font-family:var(--mono)">${cfgStr}</td></tr>`;
+    }).join('')
+  }</tbody></table>`;
+}
+
+function renderApiSlaTab(a){
+  const tiers=S.apiSlas[a.id];
+  if(tiers===undefined) return `<div style="color:var(--ink3);font-size:12px">No data yet — select this API and click "Load policies &amp; SLA tiers" above</div>`;
+  if(!tiers.length) return `<div style="color:var(--ink3);font-size:12px">No SLA tiers defined for this API</div>`;
+  return `<table class="tbl"><thead><tr><th>Tier</th><th>Limits</th><th>Auto-approve</th></tr></thead><tbody>${
+    tiers.map(t=>{
+      const limits=(t.limits||[]).map(l=>`${l.maximumRequests} req / ${l.timePeriodInMilliseconds/60000} min`).join(', ')||'—';
+      return `<tr><td style="font-size:12px;font-weight:500">${esc(t.name||'Unnamed')}</td><td class="mono" style="font-size:11px">${esc(limits)}</td><td style="font-size:11px">${t.autoApprove?'<span style="color:var(--ok)">Yes</span>':'No'}</td></tr>`;
+    }).join('')
+  }</tbody></table>`;
+}
+
+function renderApiConsumersTab(a){
+  const cons=S.apiContracts[a.id];
+  if(cons===undefined){
+    loadApiContracts(a.id);
+    return `<div style="color:var(--ink3);font-size:12px"><span class="dot-live"></span> Loading consumers…</div>`;
+  }
+  if(cons===null) return `<div style="color:var(--ink3);font-size:12px"><span class="dot-live"></span> Loading consumers…</div>`;
+  if(!cons.length) return `<div style="color:var(--ink3);font-size:12px">No active consumers for this API</div>`;
+  return `<table class="tbl"><thead><tr><th>Application</th><th>Status</th><th>SLA Tier</th></tr></thead><tbody>${
+    cons.map(c=>`<tr>
+      <td style="font-size:12px">${esc(c.applicationName||c.application?.name||'?')}</td>
+      <td><span class="pill ${c.status==='APPROVED'?'ok':'warn'}" style="font-size:10px">${esc(c.status||'?')}</span></td>
+      <td class="mono" style="font-size:11px">${esc(c.tierName||c.tier?.name||'—')}</td>
+    </tr>`).join('')
+  }</tbody></table>`;
+}
 
 window.discoverDeployments=async()=>{
   const st=document.getElementById('discStatus');
@@ -703,59 +769,71 @@ window.discoverDeployments=async()=>{
     ]);
     S.runtimeApps = rmData.status==='fulfilled'?rmData.value.apps:[];
     S.apiManagerApis = amData.status==='fulfilled'?amData.value.apis:[];
+    S.selectedApis=[];
     st.innerHTML='';
     render();
   }catch(e){ st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`; }
 };
 
-window.loadPoliciesAndSla=async()=>{
-  const st=document.getElementById('policyStatus');
-  const btn=document.getElementById('loadPoliciesBtn');
-  if(!st){ console.error('policyStatus element not found'); return; }
-  if(btn) btn.disabled=true;
+window.toggleAllApis=()=>{
+  S.selectedApis=S.selectedApis.length===S.apiManagerApis.length&&S.apiManagerApis.length>0
+    ? []
+    : S.apiManagerApis.map(a=>a.id);
+  render();
+};
 
-  // Build a persistent log div — never call render() so the view doesn't disappear
-  st.innerHTML=`<div id="policyLog" style="background:var(--bg);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--ink2);max-height:150px;overflow-y:auto;border:1px solid var(--bdr);margin-bottom:10px"><div><span class="dot-live"></span> Loading details for ${S.apiManagerApis.length} APIs…</div></div>`;
-  const logEl=document.getElementById('policyLog');
-  const log=(msg)=>{ if(logEl){ logEl.innerHTML+=`<div>${msg}</div>`; logEl.scrollTop=logEl.scrollHeight; } };
+window.toggleApiSel=(id)=>{
+  const i=S.selectedApis.indexOf(id);
+  if(i===-1) S.selectedApis.push(id); else S.selectedApis.splice(i,1);
+  render();
+};
 
-  try{
-    if(!S.selectedEnv) throw new Error('No environment selected — go back to step 2');
-    const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+window.toggleApiDetail=(id)=>{
+  const i=S.expandedApis.indexOf(id);
+  if(i===-1){ S.expandedApis.push(id); if(!S.activeApiTab[id]) S.activeApiTab[id]='policies'; }
+  else S.expandedApis.splice(i,1);
+  render();
+};
 
-    await Promise.allSettled(S.apiManagerApis.map(async a=>{
-      const [pol,sla,con]=await Promise.allSettled([
-        api('/api/anypoint/policies', {...base,apiId:a.id}),
-        api('/api/anypoint/sla-tiers',{...base,apiId:a.id}),
-        api('/api/anypoint/contracts',{...base,apiId:a.id}),
-      ]);
-      // Always populate state — empty array on failure
-      S.apiPolicies[a.id] = pol.status==='fulfilled' ? pol.value.policies||[] : [];
-      S.apiSlas[a.id]     = sla.status==='fulfilled' ? sla.value.tiers||[]    : [];
-      S.apiContracts[a.id]= con.status==='fulfilled' ? con.value.contracts||[]: [];
+window.switchApiTab=(id,tab)=>{
+  S.activeApiTab[id]=tab;
+  render();
+};
 
-      const polNote = pol.status!=='fulfilled'
-        ? ` <span style="color:var(--warn)">(policies unavailable)</span>` : '';
-      log(`<span style="color:var(--ok)">✓</span> ${esc(a.name)} — ${S.apiPolicies[a.id].length} policies${polNote} · ${S.apiSlas[a.id].length} SLA tiers · ${S.apiContracts[a.id].length} consumers`);
-    }));
+window.loadSelectedPolicies=async()=>{
+  const apis=S.apiManagerApis.filter(a=>S.selectedApis.includes(a.id));
+  if(!apis.length||!S.selectedEnv) return;
+  S._loadingPolicies=true;
+  render();
+  const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+  await Promise.allSettled(apis.map(async a=>{
+    const [pol,sla]=await Promise.allSettled([
+      api('/api/anypoint/policies',{...base,apiId:a.id}),
+      api('/api/anypoint/sla-tiers',{...base,apiId:a.id}),
+    ]);
+    S.apiPolicies[a.id]=pol.status==='fulfilled'?pol.value.policies||[]:[];
+    S.apiSlas[a.id]=sla.status==='fulfilled'?sla.value.tiers||[]:[];
+  }));
+  S._loadingPolicies=false;
+  render();
+};
 
-    log(`<span style="color:var(--ok)">✓ Done</span>`);
+window.loadApiContracts=async(id)=>{
+  if(S.apiContracts[id]!==undefined) return;
+  S.apiContracts[id]=null;
+  if(!S.selectedEnv) return;
+  const base={accessToken:S.anypointToken,orgId:S.anypointOrgId,envId:S.selectedEnv.id};
+  const r=await api('/api/anypoint/contracts',{...base,apiId:id}).catch(()=>null);
+  S.apiContracts[id]=r?.contracts||[];
+  render();
+};
 
-    // Write the table directly into the DOM — no render() needed
-    st.innerHTML+=`<table class="tbl">
-      <thead><tr><th>API</th><th>Policies applied</th><th>SLA tiers</th><th>Consumers</th></tr></thead>
-      <tbody>${S.apiManagerApis.map(a=>`<tr>
-        <td class="mono">${esc(a.name)}</td>
-        <td style="font-size:11px">${S.apiPolicies[a.id]?.length ? S.apiPolicies[a.id].map(p=>`<span class="pill warn" style="font-size:10px">${esc(p.name||String(p.policyId)||'?')}</span>`).join(' ') : '<span style="color:var(--ink3)">none</span>'}</td>
-        <td style="font-size:11px">${S.apiSlas[a.id]?.length ? S.apiSlas[a.id].map(t=>`<span class="pill ok" style="font-size:10px">${esc(t.name)}</span>`).join(' ') : '<span style="color:var(--ink3)">none</span>'}</td>
-        <td class="mono" style="font-size:11px">${S.apiContracts[a.id]?.length||'—'}</td>
-      </tr>`).join('')}</tbody>
-    </table>`;
-
-  }catch(e){
-    st.innerHTML=`<div class="banner err"><div class="ic">✗</div><div>${esc(e.message)}</div></div>`;
-  }
-  if(btn) btn.disabled=false;
+window.proceedToParse=()=>{
+  const sel=S.selectedApis.length
+    ? S.apiManagerApis.filter(a=>S.selectedApis.includes(a.id))
+    : S.apiManagerApis;
+  S.selectedApiNames=sel.map(a=>a.name);
+  unlock(4); go(4);
 };
 
 /* ================================================================
